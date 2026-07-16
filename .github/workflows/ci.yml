@@ -36,7 +36,7 @@ jobs:
       - name: Setup nightly Rust
         uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@c80aa426f9496ec5c2c1de850f2d713d34aed6eb # cargo-fuzz
+        run: cargo install cargo-fuzz --locked
       # A bounded smoke test, not a full fuzzing campaign -- catches an immediate panic/crash on
       # every push without materially slowing down CI. `cargo check`ing the harness (the previous
       # approach) only confirmed it compiled; it never actually ran the fuzzer.
