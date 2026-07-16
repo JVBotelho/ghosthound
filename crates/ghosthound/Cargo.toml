@@ -5,6 +5,7 @@ version = "0.1.0"
 edition = "2024"
 description = "GhostHound CLI: Orchestrates AD Tombstone discovery and OpenGraph generation"
 repository = "https://github.com/JVBotelho/ghosthound"
+readme = "../../README.md"
 
 [dependencies]
 ad-tombstone = { version = "0.1.0", path = "../ad-tombstone" }
