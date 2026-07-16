@@ -19,6 +19,9 @@ libfuzzer-sys = "0.4"
 [dependencies.ad-tombstone]
 path = ".."
 
+[dependencies.ad-secdesc]
+path = "../../ad-secdesc"
+
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"

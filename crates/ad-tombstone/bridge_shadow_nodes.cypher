@@ -15,11 +15,20 @@
 // not supported") -- run it directly against Neo4j instead, e.g.:
 //   docker exec -i <graph-db-container> cypher-shell -u neo4j -p <password> < bridge_shadow_nodes.cypher
 
-MATCH (shadow)
-WHERE shadow.objectid IS NOT NULL
-  AND NOT shadow:Group AND NOT shadow:User AND NOT shadow:Computer
-  AND NOT shadow:Domain AND NOT shadow:GPO AND NOT shadow:OU AND NOT shadow:Container
+// Scoped as an allowlist, not a denylist: BloodHound labels every node it creates for a given
+// ingest with that ingest's source_kind (here, the literal label "GhostHound"), in addition to
+// any specific kind declared for it -- so a shadow is precisely a GhostHound-sourced node that
+// ISN'T one of GhostHound's own real, declared kinds. A denylist of "known other kinds" (Group,
+// User, Base, Azure/ADCS kinds, other OpenGraph extensions' kinds, ...) would need updating every
+// time BloodHound or another extension adds a kind, and would still risk bridging unrelated nodes
+// that happen to share an objectid. `real` is bounded the same way, from the other direction: it
+// must NOT carry the GhostHound label, i.e. it must come from a different ingest source entirely.
+MATCH (shadow:GhostHound)
+WHERE NOT shadow:GhostHound_TombstoneUser
+  AND NOT shadow:GhostHound_TombstoneComputer
+  AND NOT shadow:GhostHound_TombstoneGroup
+  AND shadow.objectid IS NOT NULL
 MATCH (real)
-WHERE real.objectid = shadow.objectid AND id(real) <> id(shadow)
+WHERE real.objectid = shadow.objectid AND NOT real:GhostHound AND id(real) <> id(shadow)
 MERGE (shadow)-[:GhostHound_SameAs]->(real)
 RETURN count(*) AS bridges_created;

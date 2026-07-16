@@ -238,6 +238,21 @@ pub async fn check_recycle_bin_enabled(
     Ok(false)
 }
 
+/// Whether an ACE type actually *grants* access. MS-DTYP defines deny (0x01/0x06/0x0A/0x0C),
+/// audit/alarm (0x02/0x03/0x07/0x08/0x0D/0x0F), and other non-granting ACE types alongside the
+/// allow types below -- all of which can carry the same access_mask bits and object_type GUID as
+/// a real grant, so ace_type must be checked explicitly rather than inferred from the mask alone.
+fn is_allow_ace(ace_type: u8) -> bool {
+    matches!(ace_type, 0x00 | 0x05 | 0x09 | 0x0B)
+}
+
+/// Whether an ACE actually applies to the object it's read from, as opposed to only propagating
+/// to children (INHERIT_ONLY_ACE, 0x08). The Reanimate-Tombstones right is evaluated at the
+/// domain NC root itself, so an inherit-only ACE there doesn't grant anything on that object.
+fn applies_to_self(ace_flags: u8) -> bool {
+    ace_flags & 0x08 == 0
+}
+
 pub async fn check_reanimate_rights(
     ldap: &mut Ldap,
     domain_nc: &str,
@@ -283,17 +298,29 @@ pub async fn check_reanimate_rights(
                 // Grants a control access right (ExtendedRight 0x100, or GenericAll 0x10000000)
                 // AND that right is either unscoped (non-object ACE, which implicitly grants
                 // all control access rights per AD semantics) or scoped to exactly the
-                // Reanimate-Tombstones GUID.
+                // Reanimate-Tombstones GUID -- but only if the ACE is an actual grant (not a
+                // deny/audit ACE reusing the same mask/GUID) that applies to this object itself
+                // (not inherit-only).
                 let grants_control_access =
                     (ace.access_mask & 0x00000100 != 0) || (ace.access_mask & 0x10000000 != 0);
                 let is_reanimate_right =
                     ace.object_type == Some(reanimate_guid) || ace.object_type.is_none();
-                if grants_control_access && is_reanimate_right {
+                if grants_control_access
+                    && is_reanimate_right
+                    && is_allow_ace(ace.ace_type)
+                    && applies_to_self(ace.ace_flags)
+                {
                     principals.push(ace.sid.to_string());
                 }
             }
         }
     }
+
+    // A principal can hold the right via more than one qualifying ACE (e.g. both an unscoped
+    // GenericAll grant and a scoped ExtendedRight grant); dedup so callers don't emit one
+    // CanReanimate edge per matching ACE for the same SID.
+    principals.sort_unstable();
+    principals.dedup();
 
     Ok(principals)
 }
@@ -365,6 +392,26 @@ mod tests {
     use super::*;
     use ldap3::SearchEntry;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_is_allow_ace() {
+        assert!(is_allow_ace(0x00)); // ACCESS_ALLOWED_ACE_TYPE
+        assert!(is_allow_ace(0x05)); // ACCESS_ALLOWED_OBJECT_ACE_TYPE
+        assert!(is_allow_ace(0x09)); // ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+        assert!(is_allow_ace(0x0B)); // ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE
+        assert!(!is_allow_ace(0x01)); // ACCESS_DENIED_ACE_TYPE
+        assert!(!is_allow_ace(0x06)); // ACCESS_DENIED_OBJECT_ACE_TYPE
+        assert!(!is_allow_ace(0x07)); // SYSTEM_AUDIT_OBJECT_ACE_TYPE
+        assert!(!is_allow_ace(0x0A)); // ACCESS_DENIED_CALLBACK_ACE_TYPE
+        assert!(!is_allow_ace(0x0C)); // ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE
+    }
+
+    #[test]
+    fn test_applies_to_self() {
+        assert!(applies_to_self(0x00));
+        assert!(!applies_to_self(0x08)); // INHERIT_ONLY_ACE
+        assert!(!applies_to_self(0x0A)); // INHERIT_ONLY_ACE | CONTAINER_INHERIT_ACE
+    }
 
     #[test]
     fn test_tombstone_from_entry_recycled() {

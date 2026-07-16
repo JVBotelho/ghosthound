@@ -28,8 +28,9 @@ subprocess or an FFI shim to Kerberos C libraries:
 
 ## Decision
 
-- **V1 ships:** simple bind (user/password) + LDAPS/StartTLS, and NTLM bind including
-  pass-the-hash via `sspi-rs`.
+- **V1 ships:** simple bind (user/password) + LDAPS, and NTLM bind including pass-the-hash via
+  `sspi-rs`. StartTLS (upgrading a cleartext LDAP connection in-band) is not implemented -- the
+  CLI's only two transport modes are LDAPS (default) or cleartext LDAP via `--disable-ldaps`.
 - **Kerberos/ccache (pass-the-ticket) is explicitly deferred**, not silently dropped. No CLI flag
   is reserved for it yet; when Kerberos is implemented, add the flag (`-k`/`--kerberos`, matching
   impacket/SharpHound convention, plus `KRB5CCNAME` support) at that point rather than shipping an

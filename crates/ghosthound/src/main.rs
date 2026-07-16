@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use ad_tombstone::{
     check_reanimate_rights, check_recycle_bin_enabled, fetch_tombstones, resolve_object_sid,
     with_timeout,
@@ -10,6 +12,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
+use zeroize::Zeroizing;
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 #[derive(Parser)]
 #[command(
@@ -67,10 +73,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("NTLM authentication is currently disabled due to upstream dependencies (sspi-rs) failing strict security checks on the latest compiler toolchain. Please use Simple Bind.".into());
     }
 
-    let password = match args.password {
+    let password = Zeroizing::new(match args.password {
         Some(p) => p,
         None => rpassword::prompt_password("Password: ")?,
-    };
+    });
 
     let port = if !args.disable_ldaps { 636 } else { 389 };
     let protocol = if !args.disable_ldaps { "ldaps" } else { "ldap" };
@@ -166,11 +172,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[*] Building OpenGraph JSON...");
     let mut builder = OpenGraphBuilder::new();
 
-    // Domain Node
-    let mut domain_node = Node::new(domain_nc.clone(), "Domain");
-    domain_node.add_property("name", json!(args.domain.to_uppercase()));
-    builder.add_node(domain_node);
-
     for t in &tombstones {
         // These must match crates/ad-tombstone/model.json's node_kinds[].name exactly (the
         // "GhostHound_" namespace prefix per BloodHound's extension-definition convention) --
@@ -202,6 +203,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .object_sid
             .clone()
             .unwrap_or_else(|| t.object_guid.clone());
+        if target_id.is_empty() {
+            // Neither objectSid nor a parseable objectGUID (from_entry yields "" if the raw
+            // bytes weren't exactly 16 bytes) -- nothing usable to key this node or its edges on.
+            eprintln!(
+                "[!] Skipping tombstone at {} -- no usable objectSid/objectGUID",
+                t.dn
+            );
+            continue;
+        }
         let mut node = Node::new(target_id.clone(), label);
         node.add_property("is_recycled", json!(t.is_recycled));
         node.add_property("recycle_bin_enabled", json!(t.recycle_bin_enabled));
@@ -243,7 +253,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data = builder.build("GhostHound");
     let json_output = serde_json::to_string_pretty(&graph_data)?;
-    let mut file = File::create(&args.output)?;
+    // The output documents privileged principals and attack paths, so restrict it to the owner
+    // rather than relying on the process umask (typically 644, world-readable) on Unix.
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut open_options = File::options();
+    open_options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    open_options.mode(0o600);
+    let mut file = open_options.open(&args.output)?;
     file.write_all(json_output.as_bytes())?;
 
     println!("[+] Successfully wrote graph data to {}", args.output);

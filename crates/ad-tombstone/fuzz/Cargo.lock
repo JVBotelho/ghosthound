@@ -27,6 +27,7 @@ dependencies = [
 name = "ad-tombstone-fuzz"
 version = "0.0.0"
 dependencies = [
+ "ad-secdesc",
  "ad-tombstone",
  "libfuzzer-sys",
 ]

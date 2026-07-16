@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0388"
+reason = "derivative is a transitive dependency pulled in only via the GPL-quarantined sddl -> ad-secdesc-oracle dev/test-oracle path (never a published crate, excluded from default-members -- see deny.toml). This is an unmaintained-crate notice, not a feature-gated vulnerability advisory; there is no patched replacement to move to, and the affected code path never ships. Kept in sync with deny.toml's [advisories] ignore list."

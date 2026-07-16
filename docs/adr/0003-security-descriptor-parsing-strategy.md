@@ -84,7 +84,8 @@ Concretely:
 - `ad-secdesc` implementation is not shortened by reuse, but its test *confidence* is
   strengthened by having a working reference implementation to diff against, without any
   licensing entanglement.
-- `proptest` + `cargo-fuzz` panic-safety testing remains mandatory regardless (attacker/DC-
-  influenced blob), independent of this decision.
+- `cargo-fuzz` panic-safety testing remains mandatory regardless (attacker/DC-influenced blob),
+  independent of this decision. `proptest` was considered here but isn't part of the workspace --
+  fuzzing already covers the panic-safety goal this ADR cared about, so it wasn't added on top.
 - Adds one CI-enforced check: `cargo deny` must ban GPL/copyleft licenses workspace-wide, so a
   future contributor can't accidentally reintroduce a GPL dependency.

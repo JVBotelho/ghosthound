@@ -136,7 +136,13 @@ impl SecurityDescriptor {
                 return Err(SecDescError::BufferTooSmall);
             }
 
-            let mut aces = Vec::with_capacity(ace_count as usize);
+            // Bound the pre-allocation by how many ACEs could plausibly fit in the
+            // already-validated acl_size (8 bytes is the smallest possible ACE header), rather
+            // than trusting ace_count -- an attacker-controlled u16 -- directly, which could
+            // otherwise reserve capacity for up to 65535 Aces regardless of how much data the
+            // buffer actually holds.
+            let max_plausible_aces = acl_size / 8;
+            let mut aces = Vec::with_capacity(ace_count.min(max_plausible_aces) as usize);
             for _ in 0..ace_count {
                 let ace_start = acl_cursor.position() as usize;
                 let ace_type = acl_cursor.read_u8()?;
