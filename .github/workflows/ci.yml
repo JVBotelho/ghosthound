@@ -27,8 +27,25 @@ jobs:
         run: cargo test --all-targets --all-features
       - name: Test Oracle
         run: cargo test -p ad-secdesc-oracle
-      - name: Check Fuzzers
-        run: cargo check --manifest-path crates/ad-secdesc/fuzz/Cargo.toml && cargo check --manifest-path crates/ad-tombstone/fuzz/Cargo.toml
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Setup nightly Rust
+        uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@c80aa426f9496ec5c2c1de850f2d713d34aed6eb # cargo-fuzz
+      # A bounded smoke test, not a full fuzzing campaign -- catches an immediate panic/crash on
+      # every push without materially slowing down CI. `cargo check`ing the harness (the previous
+      # approach) only confirmed it compiled; it never actually ran the fuzzer.
+      - name: Fuzz ad-secdesc
+        working-directory: crates/ad-secdesc
+        run: cargo +nightly fuzz run fuzz_target_1 -- -max_total_time=60
+      - name: Fuzz ad-tombstone
+        working-directory: crates/ad-tombstone
+        run: cargo +nightly fuzz run fuzz_target_1 -- -max_total_time=60
 
   deny:
     name: Cargo Deny
