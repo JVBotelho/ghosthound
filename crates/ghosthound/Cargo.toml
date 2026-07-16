@@ -8,8 +8,8 @@ repository = "https://github.com/JVBotelho/ghosthound"
 readme = "../../README.md"
 
 [dependencies]
-ad-tombstone = { version = "0.1.0", path = "../ad-tombstone" }
-bloodhound-opengraph = { version = "0.1.0", path = "../bloodhound-opengraph" }
+ad-tombstone = { version = "0.1.1", path = "../ad-tombstone" }
+bloodhound-opengraph = { version = "0.1.1", path = "../bloodhound-opengraph" }
 clap = { version = "4.6.2", features = ["derive", "env"] }
 ldap3 = "0.12.1"
 # Not used directly by our code -- forces ldap3's native-tls backend to statically vendor/build

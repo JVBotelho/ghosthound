@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ad-secdesc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "byteorder",
  "thiserror 2.0.18",
@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "ad-tombstone"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ad-secdesc",
  "ldap3",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "bloodhound-opengraph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

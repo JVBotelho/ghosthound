@@ -1,3 +1,13 @@
+//! A from-scratch, permissively-licensed (MIT/Apache-2.0) parser for Active Directory's
+//! `nTSecurityDescriptor` attribute: security descriptors, SIDs, ACLs, and ACEs, per
+//! [MS-DTYP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/).
+//!
+//! Start at [`SecurityDescriptor::parse`] for a full `nTSecurityDescriptor` blob, or [`Sid::parse`]
+//! for a standalone `objectSid`-style attribute value. Every read is bounds-checked and returns
+//! [`SecDescError`] rather than panicking, since this data ultimately comes from a directory
+//! service response, not a fully trusted source -- this crate is fuzzed with `cargo-fuzz`
+//! accordingly, and forbids `unsafe` code entirely.
+
 #![forbid(unsafe_code)]
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -5,52 +15,104 @@ use std::io::{self, Cursor, Read};
 use thiserror::Error;
 use uuid::Uuid;
 
+/// Errors returned while parsing a security descriptor, ACL, or SID.
 #[derive(Error, Debug)]
 pub enum SecDescError {
+    /// The underlying byte cursor ran out of data (a truncated/malformed blob), or another I/O
+    /// error occurred while reading.
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
+    /// The security descriptor's or SID's revision byte wasn't the only value this format
+    /// defines (`1`).
     #[error("Invalid revision: {0}")]
     InvalidRevision(u8),
+    /// Reserved for an invalid ACL-specific revision value; currently unused since ACL revision
+    /// isn't validated against a fixed set the way the top-level revision is.
     #[error("Invalid ACL revision: {0}")]
     InvalidAclRevision(u8),
+    /// A length or offset field pointed past the end of the buffer that was actually provided.
     #[error("Buffer too small")]
     BufferTooSmall,
 }
 
+/// A parsed Windows/AD security descriptor: owner, primary group, and the two ACLs that
+/// actually grant or audit access (`dacl`, `sacl`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SecurityDescriptor {
+    /// Always `1` -- the only revision this format defines. [`SecurityDescriptor::parse`]
+    /// rejects any other value.
     pub revision: u8,
+    /// The `SECURITY_DESCRIPTOR_CONTROL` bit flags (self-relative vs. absolute, whether the DACL
+    /// is present/protected/defaulted, etc.), per MS-DTYP 2.4.6.
     pub control: u16,
+    /// The SID of the object's owner, if present.
     pub owner: Option<Sid>,
+    /// The SID of the object's primary group, if present.
     pub group: Option<Sid>,
+    /// System ACL -- audit/alarm entries. Not access-control; see [`Ace::ace_type`] for how to
+    /// tell an audit ACE apart from a real grant/deny.
     pub sacl: Option<Acl>,
+    /// Discretionary ACL -- the actual access-control entries (grants and denies).
     pub dacl: Option<Acl>,
 }
 
+/// An access control list: a revision plus an ordered sequence of [`Ace`] entries. Order matters
+/// for real AD evaluation semantics (deny-before-allow precedence, inheritance), which this crate
+/// does not itself implement -- it only parses the structure faithfully.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Acl {
+    /// The ACL's own revision byte (distinct from the security descriptor's `revision`).
     pub revision: u8,
+    /// The ACL's entries, in on-the-wire order.
     pub aces: Vec<Ace>,
 }
 
+/// A single access control entry.
+///
+/// **Callers must check `ace_type` themselves** before treating `access_mask`/`object_type` as a
+/// grant: the same mask and object-type GUID can appear on an `ACCESS_DENIED_*` or
+/// `SYSTEM_AUDIT_*` ACE, which mean the opposite of (or something unrelated to) a plain
+/// `ACCESS_ALLOWED_*` grant. This crate parses the structure; it does not interpret it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ace {
+    /// The ACE type byte (`ACCESS_ALLOWED_ACE_TYPE = 0x00`, `ACCESS_DENIED_ACE_TYPE = 0x01`,
+    /// `SYSTEM_AUDIT_ACE_TYPE = 0x02`, and their `_OBJECT`/`_CALLBACK` variants), per MS-DTYP 2.4.4.1.
     pub ace_type: u8,
+    /// The ACE flags byte (inheritance behavior: `INHERIT_ONLY_ACE = 0x08`, etc.), per MS-DTYP 2.4.4.1.
     pub ace_flags: u8,
+    /// The access mask this ACE grants, denies, or audits -- interpretation depends on `ace_type`.
     pub access_mask: u32,
+    /// For an object ACE (`ace_type` one of the `_OBJECT`/`_CALLBACK_OBJECT` variants) with the
+    /// `ACE_OBJECT_TYPE_PRESENT` flag set: the GUID scoping which right/property/extended-right
+    /// this ACE applies to. `None` for a non-object ACE (which implicitly applies to all rights
+    /// the access mask covers) or when that flag isn't set.
     pub object_type: Option<Uuid>,
+    /// Like `object_type`, but the `ACE_INHERITED_OBJECT_TYPE_PRESENT` GUID: which class of
+    /// child object this ACE propagates to via inheritance.
     pub inherited_object_type: Option<Uuid>,
+    /// The trustee (principal) this ACE applies to.
     pub sid: Sid,
 }
 
+/// A Windows/AD security identifier, e.g. `S-1-5-21-<domain>-512` for a domain's Domain Admins
+/// group.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sid {
+    /// Always `1` -- the only SID revision this format defines. [`Sid::parse`] rejects any other
+    /// value.
     pub revision: u8,
+    /// The 6-byte identifier authority (`NT_AUTHORITY`, etc.), stored big-endian on the wire.
     pub identifier_authority: [u8; 6],
+    /// The sub-authority values, in order (e.g. the domain SID components followed by the RID).
     pub sub_authorities: Vec<u32>,
 }
 
 impl Sid {
+    /// Parses a SID from its binary form (`objectSid`-style bytes), advancing `cursor` past it.
+    ///
+    /// Use this directly for a standalone SID attribute value; [`SecurityDescriptor::parse`]
+    /// calls it internally for the owner/group/trustee SIDs embedded in a full security
+    /// descriptor.
     pub fn parse(cursor: &mut Cursor<&[u8]>) -> Result<Self, SecDescError> {
         let revision = cursor.read_u8()?;
         if revision != 1 {
@@ -88,6 +150,8 @@ impl std::fmt::Display for Sid {
 }
 
 impl SecurityDescriptor {
+    /// Parses a full `nTSecurityDescriptor` attribute value: the self-relative header, owner and
+    /// group SIDs, and the SACL/DACL and their ACEs.
     pub fn parse(data: &[u8]) -> Result<Self, SecDescError> {
         let mut cursor = Cursor::new(data);
 

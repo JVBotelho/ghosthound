@@ -19,3 +19,6 @@
 
 # Local cargo config overrides (do not commit machine-specific registry/proxy settings)
 /.cargo/config.local.toml
+
+# Archives (downloaded release assets, ad-hoc backups, etc. -- not project content)
+*.zip

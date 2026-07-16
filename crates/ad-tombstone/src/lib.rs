@@ -1,3 +1,15 @@
+//! Active Directory tombstone/Recycle Bin enumeration and reanimation-rights analysis over LDAP.
+//!
+//! This is the domain-logic layer behind
+//! [GhostHound](https://github.com/JVBotelho/ghosthound)'s tombstone-reanimation attack-path
+//! analysis: it enumerates tombstones, models their AD Recycle Bin state, and determines who
+//! holds the Reanimate-Tombstones right. It's a plain library with no CLI or OpenGraph output of
+//! its own -- see the `ghosthound` crate for that.
+//!
+//! Typical flow, given an authenticated [`ldap3::Ldap`] handle and a domain naming context:
+//! [`check_recycle_bin_enabled`], then [`fetch_tombstones`] and [`check_reanimate_rights`]. See
+//! this crate's README for a full usage example.
+
 #![forbid(unsafe_code)]
 
 use ad_secdesc::SecurityDescriptor;
@@ -8,12 +20,17 @@ use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
+/// Errors returned while enumerating tombstones or reanimation rights over LDAP.
 #[derive(Error, Debug)]
 pub enum TombstoneError {
+    /// An LDAP protocol/connection error, passed through from `ldap3`.
     #[error("LDAP error: {0}")]
     Ldap(#[from] ldap3::LdapError),
+    /// An expected attribute was missing from a search result.
     #[error("Missing required attribute: {0}")]
     MissingAttribute(&'static str),
+    /// The operation didn't complete within the configured timeout -- see [`with_timeout`] for
+    /// why this exists.
     #[error("operation timed out after {0}s (no response from the DC)")]
     Timeout(u64),
 }
@@ -36,21 +53,46 @@ pub async fn with_timeout<T>(
     }
 }
 
+/// A deleted AD object (a "tombstone"), enumerated from `CN=Deleted Objects` via
+/// [`fetch_tombstones`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TombstoneObject {
+    /// The object's `objectGUID`, formatted as a standard UUID string. Empty if the raw
+    /// attribute value wasn't exactly 16 bytes.
     pub object_guid: String,
+    /// The object's `objectSid`, formatted as an `S-1-5-...` string, if present (not every
+    /// tombstoned object class has one).
     pub object_sid: Option<String>,
+    /// The tombstone's current distinguished name (under `CN=Deleted Objects`).
     pub dn: String,
+    /// The object's `objectClass` values (e.g. `["top", "person", "organizationalPerson",
+    /// "user"]`).
     pub object_class: Vec<String>,
+    /// Always `true` for anything `fetch_tombstones` returns (it filters on `isDeleted=*`);
+    /// kept as a field since it's read directly off the LDAP response.
     pub is_deleted: bool,
+    /// Whether the object has reached the fully-stripped "Recycled" state. `false` means it's
+    /// still in the full-fidelity "Deleted" state (see `group_membership_recoverable`).
     pub is_recycled: bool,
+    /// Whether the domain has the AD Recycle Bin optional feature enabled at all (the same value
+    /// for every tombstone in a given enumeration run, from [`check_recycle_bin_enabled`]).
     pub recycle_bin_enabled: bool,
+    /// Derived: `recycle_bin_enabled && !is_recycled`. When `true`, this tombstone's group
+    /// memberships (see `member_of`) are still intact and would be restored along with it.
     pub group_membership_recoverable: bool,
+    /// The DN of the object's parent container before deletion, if AD recorded one.
     pub lastknownparent: Option<String>,
+    /// DNs of groups this object belonged to, preserved only while `group_membership_recoverable`
+    /// is `true`. Reading this at all requires the `SHOW_DEACTIVATED_LINK` LDAP control in
+    /// addition to `SHOW_DELETED` -- see [`fetch_tombstones`].
     pub member_of: Vec<String>,
 }
 
 impl TombstoneObject {
+    /// Builds a [`TombstoneObject`] from a raw LDAP search result entry.
+    ///
+    /// `recycle_bin_enabled` must come from a separate [`check_recycle_bin_enabled`] call (it's
+    /// a domain-wide setting, not something readable off the tombstone entry itself).
     pub fn from_entry(
         entry: &SearchEntry,
         recycle_bin_enabled: bool,
@@ -175,6 +217,12 @@ pub async fn resolve_object_sid(
     }))
 }
 
+/// Checks whether the domain has the AD Recycle Bin optional feature enabled, by looking up
+/// `msDS-EnabledFeature` under `CN=Partitions` in the configuration naming context (found via a
+/// RootDSE lookup first).
+///
+/// This is domain-wide state, not something readable off any individual tombstone -- call it
+/// once per run and pass the result to [`fetch_tombstones`]/[`TombstoneObject::from_entry`].
 pub async fn check_recycle_bin_enabled(
     ldap: &mut Ldap,
     timeout_secs: u64,
@@ -253,6 +301,13 @@ fn applies_to_self(ace_flags: u8) -> bool {
     ace_flags & 0x08 == 0
 }
 
+/// Returns the SIDs (as `S-1-5-...` strings, deduplicated) of every principal holding the
+/// Reanimate-Tombstones right on the domain.
+///
+/// Reads and parses `nTSecurityDescriptor` from `domain_nc` itself -- the right is evaluated at
+/// the domain naming-context root, not on `CN=Deleted Objects` or on individual tombstones -- and
+/// only counts ACEs that actually grant it (correctly excluding deny/audit ACEs and
+/// inherit-only ACEs that happen to carry the same access mask or object-type GUID).
 pub async fn check_reanimate_rights(
     ldap: &mut Ldap,
     domain_nc: &str,
@@ -325,6 +380,12 @@ pub async fn check_reanimate_rights(
     Ok(principals)
 }
 
+/// Enumerates every tombstone under `CN=Deleted Objects,<domain_nc>`.
+///
+/// Uses both the `SHOW_DELETED` control (to see the tombstones at all) and
+/// `SHOW_DEACTIVATED_LINK` (to see their preserved `memberOf` values, if any -- see
+/// [`TombstoneObject::member_of`]). Pass the same `recycle_bin_enabled` value obtained from
+/// [`check_recycle_bin_enabled`] earlier in the run.
 pub async fn fetch_tombstones(
     ldap: &mut Ldap,
     domain_nc: &str,

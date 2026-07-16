@@ -1,3 +1,8 @@
+//! GhostHound CLI: enumerates Active Directory tombstones and reanimation rights over LDAP and
+//! emits a [BloodHound](https://github.com/SpecterOps/BloodHound) OpenGraph JSON payload. See the
+//! [repository README](https://github.com/JVBotelho/ghosthound) for usage, prerequisites, and
+//! BloodHound import steps; run `ghosthound --help` for the full flag list.
+
 #![forbid(unsafe_code)]
 
 use ad_tombstone::{
