@@ -1,5 +1,7 @@
 # GhostHound
 
+[![Crates.io](https://img.shields.io/crates/v/ghosthound.svg)](https://crates.io/crates/ghosthound)
+[![docs.rs](https://img.shields.io/docsrs/ghosthound)](https://docs.rs/ghosthound)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JVBotelho/ghosthound/badge)](https://securityscorecards.dev/viewer/?uri=github.com/JVBotelho/ghosthound)
 
 GhostHound is a [BloodHound](https://github.com/SpecterOps/BloodHound) OpenGraph extension for
