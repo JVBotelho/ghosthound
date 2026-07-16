@@ -1,0 +1,17 @@
+/docs/dev/
+
+# Rust / Cargo build artifacts (workspace root + any nested crates)
+/target/
+**/target/
+
+# Backup files left by some editors/tools during rustfmt/rust-analyzer edits
+**/*.rs.bk
+
+# criterion benchmark output
+/target/criterion/
+
+# Debug symbol files
+**/*.pdb
+
+# Local cargo config overrides (do not commit machine-specific registry/proxy settings)
+/.cargo/config.local.toml

@@ -1,0 +1,7 @@
+[package]
+license = "MIT OR Apache-2.0"
+name = "ad-tombstone"
+version = "0.1.0"
+edition = "2024"
+description = "Active Directory Tombstone and Recycle Bin enumerator"
+repository = "https://github.com/JVBotelho/ghosthound"

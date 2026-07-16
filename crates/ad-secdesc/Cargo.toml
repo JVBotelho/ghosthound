@@ -1,0 +1,7 @@
+[package]
+license = "MIT OR Apache-2.0"
+name = "ad-secdesc"
+version = "0.1.0"
+edition = "2024"
+description = "Binary parser for Active Directory ntSecurityDescriptor and ACEs"
+repository = "https://github.com/JVBotelho/ghosthound"

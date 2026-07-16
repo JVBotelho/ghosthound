@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crates/bloodhound-opengraph",
+    "crates/ad-secdesc",
+    "crates/ad-tombstone",
+    "crates/ghosthound",
+]
+resolver = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+overflow-checks = true
