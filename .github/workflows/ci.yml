@@ -47,3 +47,28 @@ jobs:
         with:
           scan-args: |-
             --lockfile=Cargo.lock
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@a54c7afa2cb4f0511775176b976da681329fb2e1 # stable
+        with:
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      # Intentionally no --workspace flag: this follows the same default-members scope as the
+      # `Test` job above, so the GPL-quarantined `ad-secdesc-oracle` (see docs/adr/0003) is not
+      # pulled into this build either. Its coverage is reported separately by the `Test Oracle`
+      # job's own test run.
+      - name: Generate coverage report
+        run: cargo llvm-cov --all-features --lcov --output-path lcov.info --summary-only
+      - name: Upload coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lcov-report
+          path: lcov.info

@@ -10,6 +10,10 @@
 # criterion benchmark output
 /target/criterion/
 
+# cargo-llvm-cov output (generated locally / by CI's Code Coverage job; not committed)
+/lcov.info
+/*.profraw
+
 # Debug symbol files
 **/*.pdb
 
