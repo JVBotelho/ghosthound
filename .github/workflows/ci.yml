@@ -14,7 +14,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@a54c7afa2cb4f0511775176b976da681329fb2e1 # stable
         with:
@@ -34,14 +34,14 @@ jobs:
     name: Cargo Deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       - uses: EmbarkStudios/cargo-deny-action@3f4a4725b164c9d1a46b95273f5507119ff35b54 # v2
 
   audit:
     name: OSV Scanner
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       - name: Run osv-scanner
         uses: google/osv-scanner-action/osv-scanner-action@648366d214a1c6a7dc2a9121a971295b9d3e8ad6 # v1.9.0
         with:
@@ -54,7 +54,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@a54c7afa2cb4f0511775176b976da681329fb2e1 # stable
         with:
