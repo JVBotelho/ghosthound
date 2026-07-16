@@ -6,6 +6,10 @@ members = [
     "crates/ghosthound",
     "crates/ad-secdesc-oracle",
 ]
+exclude = [
+    "crates/ad-secdesc/fuzz",
+    "crates/ad-tombstone/fuzz",
+]
 default-members = [
     "crates/bloodhound-opengraph",
     "crates/ad-secdesc",

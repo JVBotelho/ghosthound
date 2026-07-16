@@ -27,6 +27,8 @@ jobs:
         run: cargo test --all-targets --all-features
       - name: Test Oracle
         run: cargo test -p ad-secdesc-oracle
+      - name: Check Fuzzers
+        run: cargo check --manifest-path crates/ad-secdesc/fuzz/Cargo.toml && cargo check --manifest-path crates/ad-tombstone/fuzz/Cargo.toml
 
   deny:
     name: Cargo Deny
