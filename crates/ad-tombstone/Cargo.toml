@@ -5,3 +5,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Active Directory Tombstone and Recycle Bin enumerator"
 repository = "https://github.com/JVBotelho/ghosthound"
+
+[dependencies]
+ad-secdesc = { version = "0.1.0", path = "../ad-secdesc" }
+ldap3 = "0.12.1"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["full"] }
+uuid = { version = "1.24.0", features = ["v4"] }

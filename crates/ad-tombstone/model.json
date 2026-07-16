@@ -1,0 +1,42 @@
+{
+  "name": "GhostHound Extension",
+  "version": "1.0",
+  "author": "GhostHound Contributors",
+  "description": "Extends BloodHound to support AD Tombstone relationships and reanimation attacks.",
+  "nodes": [
+    {
+      "label": "TombstoneUser",
+      "properties": [
+        "is_recycled",
+        "recycle_bin_enabled",
+        "group_membership_recoverable",
+        "lastknownparent"
+      ]
+    },
+    {
+      "label": "TombstoneComputer",
+      "properties": [
+        "is_recycled",
+        "recycle_bin_enabled",
+        "group_membership_recoverable",
+        "lastknownparent"
+      ]
+    },
+    {
+      "label": "TombstoneGroup",
+      "properties": [
+        "is_recycled",
+        "recycle_bin_enabled",
+        "group_membership_recoverable",
+        "lastknownparent"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "label": "CanReanimate",
+      "is_traversable": true,
+      "properties": []
+    }
+  ]
+}
