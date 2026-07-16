@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build release binaries
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+
+    - name: Install Zig
+      uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+
+    - name: Install cargo-zigbuild
+      uses: taiki-e/install-action@c80aa426f9496ec5c2c1de850f2d713d34aed6eb # cargo-zigbuild
+
+    - name: Build with cargo-zigbuild
+      run: cargo zigbuild --release --target ${{ matrix.target }} --package ghosthound
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ghosthound-${{ matrix.target }}
+        path: target/${{ matrix.target }}/release/ghosthound
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Download artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        path: artifacts
+
+    - name: Prepare assets
+      run: |
+        mkdir -p release_assets
+        mv artifacts/ghosthound-x86_64-unknown-linux-musl/ghosthound release_assets/ghosthound-x86_64-linux-musl
+        mv artifacts/ghosthound-aarch64-unknown-linux-musl/ghosthound release_assets/ghosthound-aarch64-linux-musl
+
+    - name: Generate artifact attestation
+      uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+      with:
+        subject-path: |
+          release_assets/ghosthound-x86_64-linux-musl
+          release_assets/ghosthound-aarch64-linux-musl
+
+    - name: Release
+      uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+      with:
+        files: release_assets/*
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
