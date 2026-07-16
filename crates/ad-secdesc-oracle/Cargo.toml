@@ -1,0 +1,14 @@
+# This crate's own code is MIT OR Apache-2.0, but it links the GPL-3.0-licensed `sddl` crate
+# as a black-box test oracle (see docs/adr/0003). `publish = false` and the `[bans]`/exceptions
+# scoping in deny.toml keep this GPL dependency quarantined from every published crate — this
+# crate is never distributed, so the combined-work GPL question never arises in practice.
+[package]
+license = "MIT OR Apache-2.0"
+publish = false
+name = "ad-secdesc-oracle"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ad-secdesc = { version = "0.1.0", path = "../ad-secdesc" }
+sddl = "0.0.16"

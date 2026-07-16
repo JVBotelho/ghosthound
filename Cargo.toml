@@ -4,6 +4,13 @@ members = [
     "crates/ad-secdesc",
     "crates/ad-tombstone",
     "crates/ghosthound",
+    "crates/ad-secdesc-oracle",
+]
+default-members = [
+    "crates/bloodhound-opengraph",
+    "crates/ad-secdesc",
+    "crates/ad-tombstone",
+    "crates/ghosthound",
 ]
 resolver = "2"
 

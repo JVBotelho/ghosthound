@@ -2,8 +2,13 @@
 allow = [
     "MIT",
     "Apache-2.0",
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
+
+[[licenses.exceptions]]
+allow = ["GPL-3.0", "GPL-3.0-or-later", "GPL-3.0-only"]
+crate = "sddl"
 
 [bans]
 multiple-versions = "warn"
@@ -12,8 +17,18 @@ highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
 
+deny = [
+    { crate = "sddl", wrappers = ["ad-secdesc-oracle"] }
+]
+
 [advisories]
-ignore = []
+ignore = [
+    # RUSTSEC-2024-0388: `derivative` (a transitive dependency pulled in only via the GPL-quarantined
+    # `sddl` -> `ad-secdesc-oracle` dev/test-oracle path, never a published crate) is unmaintained.
+    # This is an unmaintained-crate notice, not a feature-gated vulnerability advisory; there is no
+    # patched replacement to move to, and the affected code path never ships.
+    "RUSTSEC-2024-0388"
+]
 
 [sources]
 unknown-registry = "deny"
