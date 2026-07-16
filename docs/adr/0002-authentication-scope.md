@@ -1,6 +1,6 @@
 # ADR-0002: V1 Authentication Scope — Simple Bind/LDAPS + NTLM, Kerberos Deferred
 
-**Status:** Accepted (amended 2026-07-16 — see Amendment: NTLM descoped from V1)
+**Status:** Accepted (amended 2026-07-16 — see amendment: NTLM descoped from V1)
 **Date:** 2026-07-16
 
 ## Context
@@ -30,10 +30,10 @@ subprocess or an FFI shim to Kerberos C libraries:
 
 - **V1 ships:** simple bind (user/password) + LDAPS/StartTLS, and NTLM bind including
   pass-the-hash via `sspi-rs`.
-- **Kerberos/ccache (pass-the-ticket) is explicitly deferred**, not silently dropped. The CLI
-  reserves the `-k`/`--kerberos` flag and `KRB5CCNAME` env convention now (matching
-  impacket/SharpHound conventions) so the surface is stable when it's implemented, but the flag
-  is documented as "not yet implemented" rather than wired to a rushed/unverified integration.
+- **Kerberos/ccache (pass-the-ticket) is explicitly deferred**, not silently dropped. No CLI flag
+  is reserved for it yet; when Kerberos is implemented, add the flag (`-k`/`--kerberos`, matching
+  impacket/SharpHound convention, plus `KRB5CCNAME` support) at that point rather than shipping an
+  inert placeholder now.
 - Before implementing Kerberos, do a dedicated spike evaluating `sspi-rs`'s GSSAPI path vs
   `cross-krb5` against a real lab DC, rather than assuming either from documentation alone.
 
@@ -41,8 +41,6 @@ subprocess or an FFI shim to Kerberos C libraries:
 
 - V1 covers the two auth modes pentesters hit most often in practice (plaintext creds, PtH),
   without gating the release on unverified Kerberos plumbing.
-- Anyone scripting GhostHound with `-k` in V1 gets a clear "not implemented" error rather than
-  silent misbehavior — flag exists, behavior doesn't yet.
 - `Administrators`-equivalent rights are required to read `CN=Deleted Objects` regardless of bind
   method — this is a hard prerequisite independent of auth mode, documented in the README (carried
   over from the original spec's Cons section).
@@ -60,7 +58,7 @@ above would reasonably believe NTLM/PtH shipped in V1.
 **Recorded now:** NTLM/pass-the-hash is **out of V1's actual shipped scope**, deferred alongside
 Kerberos, for the reason stated in the CLI's own error message (an `sspi-rs` toolchain/security-check
 incompatibility encountered during implementation, not evaluated in the original research pass
-behind this ADR). The `-k`/`--ntlm` flags both exist and both currently error rather than silently
-misbehave, consistent with this ADR's own principle for Kerberos. V1 ships **only** simple
-bind/LDAPS. Re-evaluating `sspi-rs` (or an alternative NTLM implementation) is future work, to be
-spiked the same way Kerberos is scoped to be (Decision, bullet 3) before being wired in.
+behind this ADR). The `--ntlm` flag exists and currently errors rather than silently misbehaving,
+consistent with this ADR's own principle for Kerberos. V1 ships **only** simple bind/LDAPS.
+Re-evaluating `sspi-rs` (or an alternative NTLM implementation) is future work, to be spiked the
+same way Kerberos is scoped to be (Decision, bullet 3) before being wired in.

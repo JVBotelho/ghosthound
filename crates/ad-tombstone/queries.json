@@ -5,7 +5,7 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH (n) WHERE n.group_membership_recoverable = true AND (n:TombstoneUser OR n:TombstoneComputer OR n:TombstoneGroup) RETURN n"
+          "query": "MATCH (n) WHERE n.group_membership_recoverable = true AND (n:GhostHound_TombstoneUser OR n:GhostHound_TombstoneComputer OR n:GhostHound_TombstoneGroup) RETURN n"
         }
       ],
       "description": "Finds all AD tombstones that are in the full-fidelity 'Deleted' state (Recycle Bin) and can be recovered with their previous group memberships.",
@@ -16,10 +16,10 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH (n:TombstoneUser), (g:Group), p=shortestPath((n)-[*1..]->(g)) WHERE g.objectid ENDS WITH '-512' RETURN p"
+          "query": "MATCH (n:GhostHound_TombstoneUser), (g:Group), p=shortestPath((n)-[*1..]->(g)) WHERE g.objectid ENDS WITH '-512' RETURN p"
         }
       ],
-      "description": "Finds attack paths from a TombstoneUser to Domain Admins, leveraging the CanReanimate edges.",
+      "description": "Finds attack paths from a TombstoneUser to Domain Admins, leveraging the GhostHound_CanReanimate/GhostHound_WasMemberOf edges plus the GhostHound_SameAs bridge into the real Group node. Requires bridge_shadow_nodes.cypher to have been run against Neo4j after import (see docs/adr/0006) -- without it, GhostHound_WasMemberOf's target is an unbridged placeholder and this query returns nothing.",
       "category": "Tombstones"
     }
   ]

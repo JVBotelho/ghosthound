@@ -1,42 +1,51 @@
 {
-  "name": "GhostHound Extension",
-  "version": "1.0",
-  "author": "GhostHound Contributors",
-  "description": "Extends BloodHound to support AD Tombstone relationships and reanimation attacks.",
-  "nodes": [
+  "schema": {
+    "name": "GhostHound",
+    "display_name": "GhostHound (AD Tombstone Reanimation)",
+    "version": "v1.0.0",
+    "namespace": "GhostHound"
+  },
+  "node_kinds": [
     {
-      "label": "TombstoneUser",
-      "properties": [
-        "is_recycled",
-        "recycle_bin_enabled",
-        "group_membership_recoverable",
-        "lastknownparent"
-      ]
+      "name": "GhostHound_TombstoneUser",
+      "display_name": "Tombstone User",
+      "description": "A deleted AD user object, enumerated from CN=Deleted Objects via the SHOW_DELETED LDAP control. Properties record its AD Recycle Bin state (is_recycled) and whether it can be restored with its former group memberships intact (group_membership_recoverable, per the Deleted-vs-Recycled distinction in docs/adr/0004).",
+      "is_display_kind": true,
+      "icon": "ghost",
+      "color": "#b71c1c"
     },
     {
-      "label": "TombstoneComputer",
-      "properties": [
-        "is_recycled",
-        "recycle_bin_enabled",
-        "group_membership_recoverable",
-        "lastknownparent"
-      ]
+      "name": "GhostHound_TombstoneComputer",
+      "display_name": "Tombstone Computer",
+      "description": "A deleted AD computer object, enumerated from CN=Deleted Objects via the SHOW_DELETED LDAP control.",
+      "is_display_kind": true,
+      "icon": "ghost",
+      "color": "#4527a0"
     },
     {
-      "label": "TombstoneGroup",
-      "properties": [
-        "is_recycled",
-        "recycle_bin_enabled",
-        "group_membership_recoverable",
-        "lastknownparent"
-      ]
+      "name": "GhostHound_TombstoneGroup",
+      "display_name": "Tombstone Group",
+      "description": "A deleted AD group object, enumerated from CN=Deleted Objects via the SHOW_DELETED LDAP control.",
+      "is_display_kind": true,
+      "icon": "ghost",
+      "color": "#00695c"
     }
   ],
-  "edges": [
+  "relationship_kinds": [
     {
-      "label": "CanReanimate",
-      "is_traversable": true,
-      "properties": []
+      "name": "GhostHound_CanReanimate",
+      "description": "The source principal holds the Reanimate-Tombstones control access right (or an unscoped control-access grant, which implies it) on the domain naming context root, and can therefore restore the target tombstone via LDAP_SERVER_SHOW_DELETED_OID. See docs/adr/0001 and docs/adr/0004.",
+      "is_traversable": true
+    },
+    {
+      "name": "GhostHound_WasMemberOf",
+      "description": "The tombstone was a member of the target group at deletion time, and that membership is still preserved (group_membership_recoverable=true on the source node) because the object hasn't yet reached the fully-stripped AD Recycle Bin 'Recycled' state. Restoring the tombstone restores this membership too.",
+      "is_traversable": true
+    },
+    {
+      "name": "GhostHound_SameAs",
+      "description": "Links a GhostHound-sourced placeholder node for a real AD principal (e.g. Domain Admins, referenced by CanReanimate/WasMemberOf) to the actual node RustHound-CE/SharpHound already created for it. BloodHound's OpenGraph ingest cannot merge these directly (docs/adr/0006), so this edge is created separately by running bridge_shadow_nodes.cypher against Neo4j after each import.",
+      "is_traversable": true
     }
   ]
 }

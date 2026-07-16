@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
 use ad_secdesc::SecurityDescriptor;
-use ldap3::{Ldap, SearchEntry, controls::RawControl};
+use ldap3::{Ldap, SearchEntry, SearchOptions, controls::RawControl};
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -12,6 +14,26 @@ pub enum TombstoneError {
     Ldap(#[from] ldap3::LdapError),
     #[error("Missing required attribute: {0}")]
     MissingAttribute(&'static str),
+    #[error("operation timed out after {0}s (no response from the DC)")]
+    Timeout(u64),
+}
+
+/// Wraps an LDAP round-trip with a client-side timeout.
+///
+/// `SearchOptions::timelimit` (set alongside this on every search below) is a *server-side*
+/// hint the DC may honor or ignore, and its own docs say it does not cover "a network timeout
+/// for retrieving result entries or the result of the whole operation." Against a wrong
+/// `--dc-ip`, a firewalled port, or a dead link, that leaves nothing to stop the future from
+/// hanging forever. This helper is the actual protection: every LDAP call in this crate goes
+/// through it rather than relying on `timelimit` alone.
+pub async fn with_timeout<T>(
+    secs: u64,
+    fut: impl Future<Output = Result<T, ldap3::LdapError>>,
+) -> Result<T, TombstoneError> {
+    match tokio::time::timeout(Duration::from_secs(secs), fut).await {
+        Ok(inner) => inner.map_err(TombstoneError::from),
+        Err(_) => Err(TombstoneError::Timeout(secs)),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +47,7 @@ pub struct TombstoneObject {
     pub recycle_bin_enabled: bool,
     pub group_membership_recoverable: bool,
     pub lastknownparent: Option<String>,
+    pub member_of: Vec<String>,
 }
 
 impl TombstoneObject {
@@ -73,6 +96,15 @@ impl TombstoneObject {
             .and_then(|v| v.first())
             .cloned();
 
+        // AD strips linked-value attributes like memberOf once an object reaches the fully
+        // stripped "Recycled" state; while still "Deleted" (recycle_bin_enabled && !is_recycled)
+        // the value is retained on disk, which is what `group_membership_recoverable` reflects --
+        // but even then, plain SHOW_DELETED doesn't surface it in a search: AD treats a link with
+        // one deleted endpoint as "deactivated" and hides it unless the caller also passes
+        // SHOW_DEACTIVATED_LINK (see fetch_tombstones), which is what actually makes this
+        // non-empty in practice.
+        let member_of = entry.attrs.get("memberOf").cloned().unwrap_or_default();
+
         let object_sid = entry
             .bin_attrs
             .get("objectSid")
@@ -93,21 +125,73 @@ impl TombstoneObject {
             recycle_bin_enabled,
             group_membership_recoverable,
             lastknownparent,
+            member_of,
         })
     }
 }
 
-pub async fn check_recycle_bin_enabled(ldap: &mut Ldap) -> Result<bool, TombstoneError> {
+/// Resolves a live object's `objectSid` from its DN. Used to turn a tombstone's preserved
+/// `memberOf` (a list of group DNs) into SIDs so the graph can link back to those (still-live)
+/// group nodes -- BloodHound edges match nodes by ID, not DN.
+///
+/// This intentionally uses a plain `match_by: "id"` reference rather than resolving the
+/// group's BloodHound base kind (Group/User/Computer) and using `match_by: "property"`: BloodHound's
+/// OpenGraph ingest scopes relationship-endpoint node identity to the ingest's own source kind
+/// (`GhostHound` here) regardless of match strategy, so declaring the endpoint as kind `Group`
+/// causes ingest to try creating a second `:Group` node with the same `objectid` -- which fails
+/// outright on BloodHound's own uniqueness constraint (verified against a live instance). A plain
+/// `match_by: "id"` reference creates a harmless placeholder node sharing the same `objectid`
+/// instead of erroring; `bridge_shadow_nodes.cypher` links it to the real node afterward. See
+/// docs/adr/0006-opengraph-cross-source-node-identity.md.
+pub async fn resolve_object_sid(
+    ldap: &mut Ldap,
+    dn: &str,
+    timeout_secs: u64,
+) -> Result<Option<String>, TombstoneError> {
+    let opts = SearchOptions::new().timelimit(timeout_secs as i32);
+    let (rs, _) = with_timeout(
+        timeout_secs,
+        ldap.with_search_options(opts).search(
+            dn,
+            ldap3::Scope::Base,
+            "(objectClass=*)",
+            vec!["objectSid"],
+        ),
+    )
+    .await?
+    .success()?;
+
+    Ok(rs.into_iter().find_map(|entry| {
+        let search_entry = SearchEntry::construct(entry);
+        search_entry
+            .bin_attrs
+            .get("objectSid")
+            .and_then(|v| v.first())
+            .and_then(|bytes| {
+                let mut cursor = std::io::Cursor::new(bytes.as_slice());
+                ad_secdesc::Sid::parse(&mut cursor).ok()
+            })
+            .map(|sid| sid.to_string())
+    }))
+}
+
+pub async fn check_recycle_bin_enabled(
+    ldap: &mut Ldap,
+    timeout_secs: u64,
+) -> Result<bool, TombstoneError> {
     // 1. Get Configuration Naming Context from RootDSE
-    let (rs_root, _) = ldap
-        .search(
+    let opts = SearchOptions::new().timelimit(timeout_secs as i32);
+    let (rs_root, _) = with_timeout(
+        timeout_secs,
+        ldap.with_search_options(opts.clone()).search(
             "",
             ldap3::Scope::Base,
             "(objectClass=*)",
             vec!["configurationNamingContext"],
-        )
-        .await?
-        .success()?;
+        ),
+    )
+    .await?
+    .success()?;
 
     let config_nc = if let Some(entry) = rs_root.first() {
         let search_entry = SearchEntry::construct(entry.clone());
@@ -127,15 +211,17 @@ pub async fn check_recycle_bin_enabled(ldap: &mut Ldap) -> Result<bool, Tombston
 
     // 2. Search Partitions container for msDS-EnabledFeature
     let partitions_dn = format!("CN=Partitions,{}", config_nc);
-    let (rs_part, _) = ldap
-        .search(
+    let (rs_part, _) = with_timeout(
+        timeout_secs,
+        ldap.with_search_options(opts).search(
             &partitions_dn,
             ldap3::Scope::Base,
             "(objectClass=*)",
             vec!["msDS-EnabledFeature"],
-        )
-        .await?
-        .success()?;
+        ),
+    )
+    .await?
+    .success()?;
 
     for entry in rs_part {
         let search_entry = SearchEntry::construct(entry);
@@ -155,24 +241,31 @@ pub async fn check_recycle_bin_enabled(ldap: &mut Ldap) -> Result<bool, Tombston
 pub async fn check_reanimate_rights(
     ldap: &mut Ldap,
     domain_nc: &str,
+    timeout_secs: u64,
 ) -> Result<Vec<String>, TombstoneError> {
-    // Use SHOW_DELETED control to read the hidden container
+    // Read nTSecurityDescriptor from the domain naming context root itself (not
+    // CN=Deleted Objects): the Reanimate-Tombstones control access right is evaluated at the
+    // NC root, so that DACL is the one that matters (see docs/adr/0001). The SHOW_DELETED
+    // control is harmless but unnecessary here since domain_nc is a live, non-deleted object;
+    // it's included only for consistency with the other searches in this crate.
     let ctrl = RawControl {
         ctype: "1.2.840.113556.1.4.417".to_string(),
         crit: true,
         val: None,
     };
 
-    let (rs, _) = ldap
-        .with_controls(ctrl)
-        .search(
+    let opts = SearchOptions::new().timelimit(timeout_secs as i32);
+    let (rs, _) = with_timeout(
+        timeout_secs,
+        ldap.with_controls(ctrl).with_search_options(opts).search(
             domain_nc,
             ldap3::Scope::Base,
             "(objectClass=*)",
             vec!["nTSecurityDescriptor"],
-        )
-        .await?
-        .success()?;
+        ),
+    )
+    .await?
+    .success()?;
 
     let mut principals = Vec::new();
     let reanimate_guid = Uuid::parse_str("45ec5156-db7e-47bb-b53f-dbeb2d03c40f").unwrap();
@@ -209,18 +302,32 @@ pub async fn fetch_tombstones(
     ldap: &mut Ldap,
     domain_nc: &str,
     recycle_bin_enabled: bool,
+    timeout_secs: u64,
 ) -> Result<Vec<TombstoneObject>, TombstoneError> {
     let deleted_objects_dn = format!("CN=Deleted Objects,{}", domain_nc);
 
-    let ctrl = RawControl {
-        ctype: "1.2.840.113556.1.4.417".to_string(),
-        crit: true,
-        val: None,
-    };
+    // SHOW_DELETED surfaces the tombstone itself as a search result. On its own, though, AD
+    // still hides the tombstone's own linked-value attributes (memberOf here) because the link
+    // is considered "deactivated" once one endpoint is deleted -- SHOW_DEACTIVATED_LINK is what
+    // makes those values visible again, which is what lets us see (and later graph) the groups
+    // this tombstone used to belong to.
+    let ctrls = vec![
+        RawControl {
+            ctype: "1.2.840.113556.1.4.417".to_string(),
+            crit: true,
+            val: None,
+        },
+        RawControl {
+            ctype: "1.2.840.113556.1.4.2065".to_string(),
+            crit: true,
+            val: None,
+        },
+    ];
 
-    let (rs, _) = ldap
-        .with_controls(ctrl)
-        .search(
+    let opts = SearchOptions::new().timelimit(timeout_secs as i32);
+    let (rs, _) = with_timeout(
+        timeout_secs,
+        ldap.with_controls(ctrls).with_search_options(opts).search(
             &deleted_objects_dn,
             ldap3::Scope::Subtree,
             "(isDeleted=*)",
@@ -231,10 +338,12 @@ pub async fn fetch_tombstones(
                 "isDeleted",
                 "isRecycled",
                 "lastKnownParent",
+                "memberOf",
             ],
-        )
-        .await?
-        .success()?;
+        ),
+    )
+    .await?
+    .success()?;
 
     let mut tombstones = Vec::new();
     for entry in rs {
@@ -291,6 +400,32 @@ mod tests {
         assert_eq!(
             tombstone.lastknownparent,
             Some("CN=Users,DC=ghost,DC=local".to_string())
+        );
+    }
+
+    #[test]
+    fn test_tombstone_from_entry_preserves_member_of() {
+        let mut attrs = HashMap::new();
+        attrs.insert("isDeleted".to_string(), vec!["TRUE".to_string()]);
+        attrs.insert(
+            "memberOf".to_string(),
+            vec!["CN=Domain Admins,CN=Users,DC=ghost,DC=local".to_string()],
+        );
+
+        let mut bin_attrs = HashMap::new();
+        bin_attrs.insert("objectGUID".to_string(), vec![vec![0; 16]]);
+
+        let entry = SearchEntry {
+            dn: "CN=RecoverableAdmin,CN=Deleted Objects,DC=ghost,DC=local".to_string(),
+            attrs,
+            bin_attrs,
+        };
+
+        let tombstone = TombstoneObject::from_entry(&entry, true).unwrap();
+        assert!(tombstone.group_membership_recoverable);
+        assert_eq!(
+            tombstone.member_of,
+            vec!["CN=Domain Admins,CN=Users,DC=ghost,DC=local".to_string()]
         );
     }
 
