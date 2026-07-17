@@ -201,8 +201,9 @@ impl SecurityDescriptor {
             }
 
             // Bound the pre-allocation by how many ACEs could plausibly fit in the
-            // already-validated acl_size (8 bytes is the smallest possible ACE header), rather
-            // than trusting ace_count -- an attacker-controlled u16 -- directly, which could
+            // already-validated acl_size (8 bytes is the smallest possible ACE up to and
+            // including its fixed access_mask, before the variable-length SID), rather than
+            // trusting ace_count -- an attacker-controlled u16 -- directly, which could
             // otherwise reserve capacity for up to 65535 Aces regardless of how much data the
             // buffer actually holds.
             let max_plausible_aces = acl_size / 8;

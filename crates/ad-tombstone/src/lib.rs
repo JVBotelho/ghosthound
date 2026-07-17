@@ -241,6 +241,10 @@ pub async fn check_recycle_bin_enabled(
     .await?
     .success()?;
 
+    // An empty/missing RootDSE response here means the query itself came back empty -- almost
+    // certainly a connectivity or permissions problem, not a legitimate "Recycle Bin is
+    // disabled" answer. Treat it as an error rather than silently reporting `false`, so a
+    // broken lookup can't be misread as a confirmed-disabled Recycle Bin.
     let config_nc = if let Some(entry) = rs_root.first() {
         let search_entry = SearchEntry::construct(entry.clone());
         search_entry
@@ -250,11 +254,15 @@ pub async fn check_recycle_bin_enabled(
             .cloned()
             .unwrap_or_default()
     } else {
-        return Ok(false);
+        return Err(TombstoneError::MissingAttribute(
+            "configurationNamingContext",
+        ));
     };
 
     if config_nc.is_empty() {
-        return Ok(false);
+        return Err(TombstoneError::MissingAttribute(
+            "configurationNamingContext",
+        ));
     }
 
     // 2. Search Partitions container for msDS-EnabledFeature

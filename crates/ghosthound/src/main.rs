@@ -260,7 +260,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_output = serde_json::to_string_pretty(&graph_data)?;
     // The output documents privileged principals and attack paths, so restrict it to the owner
     // rather than relying on the process umask (typically 644, world-readable) on Unix.
-    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut open_options = File::options();
     open_options.write(true).create(true).truncate(true);
     #[cfg(unix)]

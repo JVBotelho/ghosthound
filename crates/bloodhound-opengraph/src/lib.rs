@@ -64,9 +64,11 @@ pub struct Node {
 pub struct PropertyMatcher {
     /// The node property to compare against.
     pub key: String,
-    /// The comparison operator BloodHound's ingest schema accepts here (e.g. `"equals"` --
-    /// notably *not* `"equals_ignore_case"`, which passes schema validation for edges but is
-    /// rejected for edge `property_matchers` specifically; confirmed against a live instance).
+    /// The comparison operator. BloodHound's ingest schema only accepts `"equals"` here --
+    /// `"equals_ignore_case"` is a real operator BloodHound's Go code recognizes internally, but
+    /// the JSON schema that validates incoming `property_matchers` rejects it outright (confirmed
+    /// against a live instance: using it fails ingest with a schema-validation error, not a
+    /// silent fallback to case-sensitive matching).
     pub operator: String,
     /// The value to compare `key` against.
     pub value: Value,
