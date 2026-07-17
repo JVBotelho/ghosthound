@@ -1,15 +1,15 @@
 [package]
 license = "MIT OR Apache-2.0"
 name = "ghosthound"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "GhostHound CLI: Orchestrates AD Tombstone discovery and OpenGraph generation"
 repository = "https://github.com/JVBotelho/ghosthound"
 readme = "../../README.md"
 
 [dependencies]
-ad-tombstone = { version = "0.1.1", path = "../ad-tombstone" }
-bloodhound-opengraph = { version = "0.1.1", path = "../bloodhound-opengraph" }
+ad-tombstone = { version = "0.1.2", path = "../ad-tombstone" }
+bloodhound-opengraph = { version = "0.1.2", path = "../bloodhound-opengraph" }
 clap = { version = "4.6.2", features = ["derive", "env"] }
 ldap3 = "0.12.1"
 # Not used directly by our code -- forces ldap3's native-tls backend to statically vendor/build

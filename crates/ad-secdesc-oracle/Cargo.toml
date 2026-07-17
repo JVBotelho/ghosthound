@@ -10,5 +10,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ad-secdesc = { version = "0.1.1", path = "../ad-secdesc" }
+ad-secdesc = { version = "0.1.2", path = "../ad-secdesc" }
 sddl = "0.0.16"

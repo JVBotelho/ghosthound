@@ -1,13 +1,13 @@
 [package]
 license = "MIT OR Apache-2.0"
 name = "ad-tombstone"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Active Directory Tombstone and Recycle Bin enumerator"
 repository = "https://github.com/JVBotelho/ghosthound"
 
 [dependencies]
-ad-secdesc = { version = "0.1.1", path = "../ad-secdesc" }
+ad-secdesc = { version = "0.1.2", path = "../ad-secdesc" }
 ldap3 = "0.12.1"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
