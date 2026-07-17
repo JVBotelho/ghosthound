@@ -218,6 +218,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let mut node = Node::new(target_id.clone(), label);
+        if let Some(sam) = &t.sam_account_name {
+            // Matches BloodHound's own display convention for AD principals
+            // (SAMACCOUNTNAME@DOMAIN.TLD, uppercased) -- without this, a tombstone renders as a
+            // bare SID/GUID string instead of a readable name.
+            node.add_property(
+                "name",
+                json!(format!("{}@{}", sam, args.domain).to_uppercase()),
+            );
+        }
         node.add_property("is_recycled", json!(t.is_recycled));
         node.add_property("recycle_bin_enabled", json!(t.recycle_bin_enabled));
         node.add_property(

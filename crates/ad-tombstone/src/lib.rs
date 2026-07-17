@@ -13,12 +13,17 @@
 #![forbid(unsafe_code)]
 
 use ad_secdesc::SecurityDescriptor;
-use ldap3::{Ldap, SearchEntry, SearchOptions, controls::RawControl};
+use ldap3::{Ldap, SearchEntry, SearchOptions, adapters::PagedResults, controls::RawControl};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
+
+/// AD's own default `MaxPageSize` LDAP policy limit. Requesting exactly this many entries per
+/// page keeps `fetch_tombstones` aligned with what a default-configured DC already enforces,
+/// rather than picking an arbitrary smaller number.
+const LDAP_PAGE_SIZE: i32 = 1000;
 
 /// Errors returned while enumerating tombstones or reanimation rights over LDAP.
 #[derive(Error, Debug)]
@@ -86,6 +91,13 @@ pub struct TombstoneObject {
     /// is `true`. Reading this at all requires the `SHOW_DEACTIVATED_LINK` LDAP control in
     /// addition to `SHOW_DELETED` -- see [`fetch_tombstones`].
     pub member_of: Vec<String>,
+    /// The object's `sAMAccountName`, if AD still has it. Unlike `member_of`, this is a plain
+    /// (non-linked-value) attribute, so it's visible under plain `SHOW_DELETED` without needing
+    /// `SHOW_DEACTIVATED_LINK` -- it's preserved on disk the same way other core attributes are
+    /// while the object is in the "Deleted" state, and stripped once fully "Recycled". Used as
+    /// the node's display name -- without it, a tombstone shows up in BloodHound as a bare
+    /// SID/GUID string.
+    pub sam_account_name: Option<String>,
 }
 
 impl TombstoneObject {
@@ -147,6 +159,12 @@ impl TombstoneObject {
         // non-empty in practice.
         let member_of = entry.attrs.get("memberOf").cloned().unwrap_or_default();
 
+        let sam_account_name = entry
+            .attrs
+            .get("sAMAccountName")
+            .and_then(|v| v.first())
+            .cloned();
+
         let object_sid = entry
             .bin_attrs
             .get("objectSid")
@@ -168,6 +186,7 @@ impl TombstoneObject {
             group_membership_recoverable,
             lastknownparent,
             member_of,
+            sam_account_name,
         })
     }
 }
@@ -394,6 +413,11 @@ pub async fn check_reanimate_rights(
 /// `SHOW_DEACTIVATED_LINK` (to see their preserved `memberOf` values, if any -- see
 /// [`TombstoneObject::member_of`]). Pass the same `recycle_bin_enabled` value obtained from
 /// [`check_recycle_bin_enabled`] earlier in the run.
+///
+/// Paged with the Simple Paged Results control (page size [`LDAP_PAGE_SIZE`]) rather than a
+/// single unpaged search: AD's default `MaxPageSize` policy caps an unpaged search at 1000
+/// entries, so any domain with more tombstones than that would otherwise fail outright with
+/// `sizeLimitExceeded` instead of silently truncating.
 pub async fn fetch_tombstones(
     ldap: &mut Ldap,
     domain_nc: &str,
@@ -421,9 +445,11 @@ pub async fn fetch_tombstones(
     ];
 
     let opts = SearchOptions::new().timelimit(timeout_secs as i32);
-    let (rs, _) = with_timeout(
-        timeout_secs,
-        ldap.with_controls(ctrls).with_search_options(opts).search(
+    let mut stream = ldap
+        .with_controls(ctrls)
+        .with_search_options(opts)
+        .streaming_search_with(
+            PagedResults::new(LDAP_PAGE_SIZE),
             &deleted_objects_dn,
             ldap3::Scope::Subtree,
             "(isDeleted=*)",
@@ -435,14 +461,13 @@ pub async fn fetch_tombstones(
                 "isRecycled",
                 "lastKnownParent",
                 "memberOf",
+                "sAMAccountName",
             ],
-        ),
-    )
-    .await?
-    .success()?;
+        )
+        .await?;
 
     let mut tombstones = Vec::new();
-    for entry in rs {
+    while let Some(entry) = with_timeout(timeout_secs, stream.next()).await? {
         let search_entry = SearchEntry::construct(entry);
         // Exclude the container itself
         if search_entry.dn.eq_ignore_ascii_case(&deleted_objects_dn) {
@@ -452,6 +477,7 @@ pub async fn fetch_tombstones(
             tombstones.push(tombstone);
         }
     }
+    stream.finish().await.success()?;
 
     Ok(tombstones)
 }
@@ -564,5 +590,42 @@ mod tests {
         assert!(tombstone.is_deleted);
         assert!(!tombstone.is_recycled);
         assert!(tombstone.group_membership_recoverable);
+    }
+
+    #[test]
+    fn test_tombstone_from_entry_sam_account_name() {
+        let mut attrs = HashMap::new();
+        attrs.insert("isDeleted".to_string(), vec!["TRUE".to_string()]);
+        attrs.insert("sAMAccountName".to_string(), vec!["svc-test".to_string()]);
+
+        let mut bin_attrs = HashMap::new();
+        bin_attrs.insert("objectGUID".to_string(), vec![vec![0; 16]]);
+
+        let entry = SearchEntry {
+            dn: "CN=svc-test,CN=Deleted Objects,DC=ghost,DC=local".to_string(),
+            attrs,
+            bin_attrs,
+        };
+
+        let tombstone = TombstoneObject::from_entry(&entry, true).unwrap();
+        assert_eq!(tombstone.sam_account_name, Some("svc-test".to_string()));
+    }
+
+    #[test]
+    fn test_tombstone_from_entry_missing_sam_account_name() {
+        let mut attrs = HashMap::new();
+        attrs.insert("isDeleted".to_string(), vec!["TRUE".to_string()]);
+
+        let mut bin_attrs = HashMap::new();
+        bin_attrs.insert("objectGUID".to_string(), vec![vec![0; 16]]);
+
+        let entry = SearchEntry {
+            dn: "CN=stripped,CN=Deleted Objects,DC=ghost,DC=local".to_string(),
+            attrs,
+            bin_attrs,
+        };
+
+        let tombstone = TombstoneObject::from_entry(&entry, true).unwrap();
+        assert_eq!(tombstone.sam_account_name, None);
     }
 }
