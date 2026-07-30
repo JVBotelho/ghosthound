@@ -1,0 +1,5 @@
+{
+  "name": "All Tombstones",
+  "description": "Every deleted object GhostHound enumerated from CN=Deleted Objects. Click a node for its Recycle Bin state (is_recycled, group_membership_recoverable), its pre-deletion location (lastknownparent), and its owner (ownersid).",
+  "query": "MATCH (t) WHERE t:GhostHound_TombstoneUser OR t:GhostHound_TombstoneComputer OR t:GhostHound_TombstoneGroup RETURN t"
+}

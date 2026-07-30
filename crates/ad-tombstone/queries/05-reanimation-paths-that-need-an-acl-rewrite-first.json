@@ -1,0 +1,5 @@
+{
+  "name": "Reanimation Paths That Need an ACL Rewrite First",
+  "description": "Principals that can reanimate a tombstone only by first rewriting its security descriptor -- they own it, or hold WRITE_DAC/WRITE_OWNER on it, but do not hold the Reanimate-Tombstones right. Operationally distinct from a formal grant: the ACL/owner rewrite is an extra, auditable step. This is the class of path ADR-0007 added.",
+  "query": "MATCH p=()-[r:GhostHound_CanReanimate]->(t) WHERE NOT 'reanimate_right' IN r.sources RETURN p"
+}

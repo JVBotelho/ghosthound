@@ -1,0 +1,5 @@
+{
+  "name": "Unbridged GhostHound Placeholder Nodes",
+  "description": "Placeholder nodes that GhostHound edges point at but which aren't linked to a real AD node yet, so any path through them dead-ends. Expected immediately after an import: run bridge_shadow_nodes.cypher via cypher-shell and re-check. Anything still listed afterwards is a principal BloodHound has no node for at all -- a SID from a trusted domain, or an orphaned SID left in the DACL.",
+  "query": "MATCH (s:GhostHound) WHERE NOT s:GhostHound_TombstoneUser AND NOT s:GhostHound_TombstoneComputer AND NOT s:GhostHound_TombstoneGroup AND NOT (s)-[:GhostHound_SameAs]->() RETURN s"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Tombstones Whose Security Descriptor Was Unreadable",
+  "description": "Tombstones whose nTSecurityDescriptor came back empty, so no owner- or DACL-based reanimation path could be derived. Usually means no READ_CONTROL for the collecting account; re-run GhostHound as a more privileged principal to close the gap. The collector also reports this count on stderr during the run.",
+  "query": "MATCH (t) WHERE (t:GhostHound_TombstoneUser OR t:GhostHound_TombstoneComputer OR t:GhostHound_TombstoneGroup) AND t.ownersid IS NULL RETURN t"
+}

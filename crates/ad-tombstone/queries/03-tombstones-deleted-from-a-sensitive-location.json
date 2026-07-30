@@ -1,0 +1,5 @@
+{
+  "name": "Tombstones Deleted From a Sensitive Location",
+  "description": "Tombstones whose lastknownparent was a sensitive container (Domain Controllers, Tier 0, ADCS), or that privilege_zones.cypher already tagged highvalue. Reanimating one of these restores an identity that used to live in a privileged part of the directory.",
+  "query": "MATCH (t) WHERE (t:GhostHound_TombstoneUser OR t:GhostHound_TombstoneComputer OR t:GhostHound_TombstoneGroup) AND (t.highvalue = true OR t.lastknownparent CONTAINS 'OU=Domain Controllers' OR t.lastknownparent CONTAINS 'OU=Tier 0' OR t.lastknownparent CONTAINS 'OU=ADCS') RETURN t"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Path to Domain Admins via Reanimation",
+  "description": "Finds the full attack path from a principal with the Reanimate-Tombstones right, through the tombstone, into the real Domain Admins node: GhostHound_CanReanimate (reanimator -> tombstone), GhostHound_WasMemberOf (tombstone -> placeholder), and the GhostHound_SameAs bridge (placeholder -> the real Group node). Requires bridge_shadow_nodes.cypher to have been run against Neo4j after import (see docs/adr/0006) -- without it, GhostHound_WasMemberOf's target is an unbridged placeholder and this query returns nothing.",
+  "query": "MATCH p=(reanimator)-[:GhostHound_CanReanimate]->(n:GhostHound_TombstoneUser)-[:GhostHound_WasMemberOf]->(shadow)-[:GhostHound_SameAs]->(g:Group) WHERE g.objectid ENDS WITH '-512' RETURN p"
+}

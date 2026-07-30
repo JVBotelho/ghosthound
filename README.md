@@ -68,6 +68,36 @@ for the rationale:
   reanimation-rights analysis.
 - `ghosthound`: the CLI orchestrating the above.
 
+## Detected Paths
+
+A `GhostHound_CanReanimate` edge is emitted for two distinct mechanisms, recorded on the edge's
+`source` property (the single strongest one) and `sources` property (all of them) — see
+`docs/adr/0007-ownership-and-dacl-reanimation-paths.md`:
+
+| `source` | Meaning |
+| --- | --- |
+| `reanimate_right` | The principal formally holds the Reanimate-Tombstones control access right (GUID `45ec5156-db7e-47bb-b53f-dbeb2d03c40f`): either domain-wide, from the naming-context root's DACL (where an unscoped control-access/`GenericAll` grant also implies it), or from an ACE on the tombstone naming that GUID explicitly — typically inherited from `CN=Deleted Objects`. |
+| `owner` | The principal is the tombstone's owner (`OwnerSid` of its own `nTSecurityDescriptor`). An owner can rewrite the object's DACL regardless of what that DACL says. |
+| `write_dac` | The principal holds `WRITE_DAC` on the tombstone and can grant itself the right. `GenericAll` on the tombstone lands here (plus `write_owner`), *not* under `reanimate_right`: Reanimate-Tombstones is validated at the naming-context root, so broad rights on the object itself buy the ACL rewrite, not the right. |
+| `write_owner` | The principal holds `WRITE_OWNER` on the tombstone, can take ownership, and thereby obtain `WRITE_DAC`. |
+
+The distinction is operational, not cosmetic: `reanimate_right` is ready to use as-is, while the
+other three need a DACL/owner rewrite on the tombstone first — an extra step that leaves an
+auditable trace. Filter on `source` (or `'write_dac' IN e.sources`) when that matters. Each
+principal gets one edge per tombstone no matter how many mechanisms qualify it; the tombstone node
+also carries its owner as an `ownersid` property.
+
+Reading a tombstone's own descriptor needs `READ_CONTROL` on that object, and the `SD_FLAGS` LDAP
+control (`1.2.840.113556.1.4.801`, requesting `OWNER|GROUP|DACL` only) — without it the DC would try
+to hand back the SACL too, which needs `SeSecurityPrivilege`, and drops `nTSecurityDescriptor` from
+the response entirely instead. When a descriptor still isn't readable, GhostHound says so on stderr
+rather than reporting the tombstone as uncontrolled.
+
+Well-known principals (BUILTIN groups, `SYSTEM`, Authenticated Users) are emitted domain-scoped as
+`<DOMAIN FQDN>-<SID>`, matching how SharpHound/RustHound-CE store their `objectid` — otherwise their
+placeholder nodes share no `objectid` with any real node and `bridge_shadow_nodes.cypher` can't pair
+them.
+
 ## Importing into BloodHound
 
 1. In BloodHound CE's OpenGraph Management page, upload `crates/ad-tombstone/model.json` once to
@@ -86,9 +116,19 @@ for the rationale:
    rather than the real ones BloodHound already has — an OpenGraph ingest limitation, not a bug in
    this data; see `docs/adr/0006-opengraph-cross-source-node-identity.md`. This script bridges
    them so paths are actually traversable. Safe to re-run after every import.
-4. Import the starter queries in `crates/ad-tombstone/queries.json` and, optionally, run
-   `crates/ad-tombstone/privilege_zones.cypher` once to tag tombstones under Tier Zero OUs as
-   high-value — this also needs `cypher-shell` rather than the search bar, for the same reason
+4. Import the starter queries in `crates/ad-tombstone/queries/`. BloodHound CE's saved-query import
+   takes **one query per JSON file** (`{name, description, query}`), or a ZIP of such files — so zip
+   the directory and upload that in one go:
+   ```bash
+   (cd crates/ad-tombstone/queries && zip -X ../ghosthound-queries.zip *.json)
+   ```
+   Then, in the Cypher search panel, use the import control (it accepts `application/json` and
+   `application/zip`). Individual `.json` files can also be imported one at a time. Note this is
+   *not* BloodHound Legacy's single-file `customqueries.json` format — CE's
+   `POST /api/v2/saved-queries/import` unmarshals each file into one query and rejects an array or a
+   `{"queries": [...]}` wrapper.
+5. Optionally run `crates/ad-tombstone/privilege_zones.cypher` once to tag tombstones under Tier Zero
+   OUs as high-value — this also needs `cypher-shell` rather than the search bar, for the same reason
    as step 3 (its `SET` is an updating clause too).
 
 Once bridged, the reanimation path renders as a normal traversable path — a tombstone that was

@@ -1,0 +1,5 @@
+{
+  "name": "Reanimation Paths for a Specific Principal (edit the name)",
+  "description": "Everything one principal can reanimate, starting from its real AD node and crossing the GhostHound bridge. Edit 'JOHN@' to the principal you're operating as -- BloodHound names are uppercase SAMACCOUNTNAME@DOMAIN.TLD. Requires bridge_shadow_nodes.cypher.",
+  "query": "MATCH p=(real)<-[:GhostHound_SameAs]-(shadow)-[:GhostHound_CanReanimate]->(t) WHERE real.name STARTS WITH 'JOHN@' RETURN p"
+}

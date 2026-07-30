@@ -1,0 +1,5 @@
+{
+  "name": "Find All Recoverable Tombstones (Deleted State)",
+  "description": "Finds all AD tombstones that are in the full-fidelity 'Deleted' state (Recycle Bin) and can be recovered with their previous group memberships.",
+  "query": "MATCH (n) WHERE n.group_membership_recoverable = true AND (n:GhostHound_TombstoneUser OR n:GhostHound_TombstoneComputer OR n:GhostHound_TombstoneGroup) RETURN n"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Reanimation Into Any Tier Zero Group",
+  "description": "Generalizes the Domain Admins query to every Tier Zero principal: tombstones whose preserved memberOf leads into one, so restoring the tombstone hands that membership back. Only meaningful while group_membership_recoverable = true on the tombstone (the AD Recycle Bin 'Deleted' state, ADR-0004). Requires bridge_shadow_nodes.cypher.",
+  "query": "MATCH p=(t)-[:GhostHound_WasMemberOf]->(shadow)-[:GhostHound_SameAs]->(g:Tag_Tier_Zero) RETURN p"
+}
