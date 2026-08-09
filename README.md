@@ -26,6 +26,8 @@ you are explicitly authorized to test.
 - Network reachability to a Domain Controller on LDAP (389) or LDAPS (636).
 - BloodHound CE v8+ if you want to import the resulting graph (collection and JSON output work
   standalone without it).
+- To build from source: Rust 1.85 or newer (every crate is on `edition = "2024"`). See
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full toolchain and local check setup.
 
 ## Usage
 
@@ -105,6 +107,21 @@ This project prioritizes high-confidence security from day 1 (`docs/adr/0005-sup
 - OpenSSF Scorecard workflows.
 - `cargo fuzz` for panic safety in parsing raw binary descriptors.
 - No `unsafe` in foundational libraries.
+
+## Credits
+
+Built by **JVBotelho** — [glitchedcat.com](https://glitchedcat.com).
+
+GhostHound is MIT OR Apache-2.0 licensed, so you are free to use, modify, and embed it without
+asking. If it turns up something useful on an engagement or in research, a link back is appreciated
+but never required. `CITATION.cff` has ready-made citation metadata (GitHub renders it as the
+"Cite this repository" button).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the toolchain, the local checks CI enforces, and the
+dependency rules. Security vulnerabilities go through the private process in
+[`SECURITY.md`](SECURITY.md), not public issues.
 
 ## Design Rationale
 

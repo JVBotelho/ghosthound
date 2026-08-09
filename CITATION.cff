@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: GhostHound
+message: >-
+  If you use GhostHound in research, an engagement writeup, a conference talk, or another tool,
+  please credit it using the metadata below.
+type: software
+authors:
+  - given-names: JVBotelho
+    alias: JVBotelho
+    website: "https://glitchedcat.com"
+abstract: >-
+  A BloodHound OpenGraph extension that enumerates Active Directory tombstones in
+  CN=Deleted Objects over LDAP, determines which principals hold the Reanimate-Tombstones
+  right, and emits an OpenGraph JSON payload so tombstone reanimation appears as a
+  first-class attack path in BloodHound CE.
+keywords:
+  - active-directory
+  - bloodhound
+  - opengraph
+  - tombstone
+  - attack-path
+  - red-team
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/JVBotelho/ghosthound"
+url: "https://glitchedcat.com"
+version: 0.1.2

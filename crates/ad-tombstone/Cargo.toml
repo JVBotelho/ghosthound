@@ -4,7 +4,9 @@ name = "ad-tombstone"
 version = "0.1.2"
 edition = "2024"
 description = "Active Directory Tombstone and Recycle Bin enumerator"
+authors = ["JVBotelho"]
 repository = "https://github.com/JVBotelho/ghosthound"
+homepage = "https://glitchedcat.com"
 
 [dependencies]
 ad-secdesc = { version = "0.1.2", path = "../ad-secdesc" }

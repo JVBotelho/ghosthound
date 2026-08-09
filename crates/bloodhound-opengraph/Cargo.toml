@@ -4,7 +4,9 @@ name = "bloodhound-opengraph"
 version = "0.1.2"
 edition = "2024"
 description = "BloodHound OpenGraph JSON builder and schema structures"
+authors = ["JVBotelho"]
 repository = "https://github.com/JVBotelho/ghosthound"
+homepage = "https://glitchedcat.com"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
