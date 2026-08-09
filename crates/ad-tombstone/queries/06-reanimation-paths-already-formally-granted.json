@@ -1,0 +1,5 @@
+{
+  "name": "Reanimation Paths Already Formally Granted",
+  "description": "Principals holding the Reanimate-Tombstones control access right (domain-wide from the naming-context root, or via an ACE on the tombstone naming that GUID explicitly). No ACL rewrite needed -- usable as-is.",
+  "query": "MATCH p=()-[r:GhostHound_CanReanimate]->(t) WHERE 'reanimate_right' IN r.sources RETURN p"
+}

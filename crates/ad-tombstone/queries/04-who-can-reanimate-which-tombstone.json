@@ -1,0 +1,5 @@
+{
+  "name": "Who Can Reanimate Which Tombstone",
+  "description": "Every reanimation capability GhostHound found, as a graph. Click an edge to read `source` (the strongest mechanism: reanimate_right, owner, write_dac or write_owner) and `sources` (all of them). The reanimator endpoint is a GhostHound placeholder node until bridge_shadow_nodes.cypher is run -- see docs/adr/0006.",
+  "query": "MATCH p=()-[:GhostHound_CanReanimate]->(t) WHERE t:GhostHound_TombstoneUser OR t:GhostHound_TombstoneComputer OR t:GhostHound_TombstoneGroup RETURN p"
+}

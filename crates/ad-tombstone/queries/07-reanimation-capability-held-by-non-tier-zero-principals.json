@@ -1,0 +1,5 @@
+{
+  "name": "Reanimation Capability Held by Non-Tier-Zero Principals",
+  "description": "The interesting subset: reanimation capability held by principals that are NOT already Tier Zero. A Domain Admin being able to reanimate a tombstone is expected; a regular user being able to is an escalation path. Requires bridge_shadow_nodes.cypher -- the bridge is what resolves GhostHound's placeholders to the real AD principals, which is where the Tier Zero tag lives.",
+  "query": "MATCH p=(real)<-[:GhostHound_SameAs]-(shadow)-[:GhostHound_CanReanimate]->(t) WHERE NOT real:Tag_Tier_Zero RETURN p"
+}

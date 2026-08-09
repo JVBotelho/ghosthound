@@ -6,14 +6,14 @@
 #![forbid(unsafe_code)]
 
 use ad_tombstone::{
-    check_reanimate_rights, check_recycle_bin_enabled, fetch_tombstones, resolve_object_sid,
-    with_timeout,
+    ReanimateMechanism, ReanimationPath, check_reanimate_rights, check_recycle_bin_enabled,
+    fetch_tombstones, resolve_object_sid, with_timeout,
 };
 use bloodhound_opengraph::{Edge, Node, OpenGraphBuilder};
 use clap::Parser;
 use ldap3::{LdapConnAsync, LdapConnSettings};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
@@ -68,6 +68,86 @@ struct Args {
     /// Output JSON file name
     #[arg(short, long, default_value = "ghosthound_output.json")]
     output: String,
+}
+
+/// Rewrites a well-known SID into the domain-scoped form BloodHound itself uses as `objectid`.
+///
+/// SharpHound/RustHound-CE store non-domain principals (BUILTIN groups, `NT AUTHORITY\SYSTEM`,
+/// Authenticated Users, ...) as `<DOMAIN FQDN UPPERCASE>-<SID>` -- e.g.
+/// `TOMBWATCHER.HTB-S-1-5-32-544` -- because the same well-known SID means a different principal in
+/// every domain. Emitting the bare `S-1-5-32-544` produces a placeholder whose `objectid` matches no
+/// real node, so `bridge_shadow_nodes.cypher` can never pair it and those edges stay stranded
+/// (observed in the lab: the SYSTEM/Administrators/Account Operators shadows were the only
+/// unbridged ones).
+///
+/// A real domain SID (`S-1-5-21-<domain>-<rid>`) is already globally unique and is passed through
+/// untouched. Anything else gets the domain prefix; for an exotic non-AD SID that BloodHound has no
+/// node for either way (`S-1-5-80-*` service SIDs, say), the result is still an unbridged
+/// placeholder -- no worse than the bare form, and never a false pairing.
+fn graph_principal_id(sid: &str, domain: &str) -> String {
+    if sid.starts_with("S-1-5-21-") {
+        sid.to_string()
+    } else {
+        format!("{}-{}", domain.to_uppercase(), sid)
+    }
+}
+
+/// Builds the `GhostHound_CanReanimate` edges pointing at one tombstone.
+///
+/// Both reanimation paths land here: `domain_rights` is the set of SIDs holding the
+/// Reanimate-Tombstones right domain-wide (read off the domain NC root, so it applies to every
+/// tombstone), and `object_paths` is control over this specific object's security descriptor --
+/// ownership, `WRITE_DAC`, `WRITE_OWNER`, or an inherited Reanimate-Tombstones ACE.
+///
+/// The same principal can qualify both ways, so mechanisms are merged per SID into a single edge
+/// carrying all of them rather than one edge per mechanism -- the same one-edge-per-principal rule
+/// `check_reanimate_rights` already applies to its own SID list.
+fn reanimation_edges(
+    target_id: &str,
+    domain: &str,
+    domain_rights: &[String],
+    object_paths: &[ReanimationPath],
+) -> Vec<Edge> {
+    let mut mechanisms_by_sid: BTreeMap<&str, BTreeSet<ReanimateMechanism>> = BTreeMap::new();
+    for sid in domain_rights {
+        mechanisms_by_sid
+            .entry(sid.as_str())
+            .or_default()
+            .insert(ReanimateMechanism::ReanimateRight);
+    }
+    for path in object_paths {
+        mechanisms_by_sid
+            .entry(path.sid.as_str())
+            .or_default()
+            .extend(path.mechanisms.iter().copied());
+    }
+
+    mechanisms_by_sid
+        .into_iter()
+        .filter_map(|(sid, mechanisms)| {
+            // Non-empty by construction (every entry is created with at least one mechanism).
+            let primary = *mechanisms.iter().next()?;
+            // Well-known SIDs (BUILTIN groups, SYSTEM, ...) must be domain-scoped to match the
+            // objectid BloodHound already stores for them -- see `graph_principal_id`.
+            let start =
+                bloodhound_opengraph::EdgeEndpoint::new(graph_principal_id(sid, domain), "id");
+            let end = bloodhound_opengraph::EdgeEndpoint::new(target_id.to_string(), "id");
+            // Kind must match model.json's relationship_kinds[].name exactly, same reasoning as
+            // the node kinds.
+            let mut edge = Edge::new(start, end, "GhostHound_CanReanimate");
+            // `source` is the single strongest mechanism (reanimate_right > owner > write_dac >
+            // write_owner) so a Cypher query can filter on one scalar value; `sources` lists every
+            // mechanism for the cases where that matters. The distinction is operational:
+            // reanimate_right is already granted, while the others require first rewriting the
+            // tombstone's DACL -- a loud, auditable extra step.
+            edge.add_property("source", json!(primary.as_str()));
+            edge.add_property(
+                "sources",
+                json!(mechanisms.iter().map(|m| m.as_str()).collect::<Vec<_>>()),
+            );
+            Some(edge)
+        })
+        .collect()
 }
 
 #[tokio::main]
@@ -157,9 +237,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[*] Checking for reanimation rights on the domain naming context root...");
     let reanimate_rights = check_reanimate_rights(&mut ldap, &domain_nc, args.timeout_secs).await?;
     println!(
-        "[+] Found {} SIDs with reanimation rights.",
+        "[+] Found {} SIDs with the Reanimate-Tombstones right domain-wide.",
         reanimate_rights.len()
     );
+
+    // Ownership/WRITE_DAC/WRITE_OWNER on an individual tombstone is a reanimation path too (the
+    // principal rewrites that object's DACL to grant itself the right), and it lives in the
+    // tombstone's own nTSecurityDescriptor rather than the domain NC root's. A tombstone whose
+    // descriptor wasn't readable (no READ_CONTROL for the bound principal) is reported rather than
+    // silently treated as "nobody controls this".
+    let per_object_controllers: usize = tombstones.iter().map(|t| t.reanimation_paths.len()).sum();
+    println!(
+        "[+] Found {} owner/WRITE_DAC/WRITE_OWNER reanimation paths on individual tombstones.",
+        per_object_controllers
+    );
+    let opaque_tombstones = tombstones.iter().filter(|t| t.owner_sid.is_none()).count();
+    if opaque_tombstones > 0 {
+        eprintln!(
+            "[!] {} of {} tombstones had no readable nTSecurityDescriptor (READ_CONTROL denied or \
+             malformed); their ownership/DACL reanimation paths are not represented in the output.",
+            opaque_tombstones,
+            tombstones.len()
+        );
+    }
 
     println!("[*] Resolving preserved group memberships to SIDs...");
     let mut group_dn_to_sid: HashMap<String, String> = HashMap::new();
@@ -236,15 +336,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(parent) = &t.lastknownparent {
             node.add_property("lastknownparent", json!(parent));
         }
+        // The object's own owner, from its nTSecurityDescriptor. Surfaced on the node (not only
+        // as an edge) because "who owns this tombstone" is a fact about the object that an analyst
+        // reads directly, and it's what makes the corresponding owner-sourced edge explainable.
+        if let Some(owner) = &t.owner_sid {
+            node.add_property("ownersid", json!(graph_principal_id(owner, &args.domain)));
+        }
 
         builder.add_node(node);
 
-        // Edges: Principals with the reanimation right can reanimate this tombstone. Kind
-        // must match model.json's relationship_kinds[].name exactly, same reasoning as above.
-        for sid in &reanimate_rights {
-            let start = bloodhound_opengraph::EdgeEndpoint::new(sid.clone(), "id");
-            let end = bloodhound_opengraph::EdgeEndpoint::new(target_id.clone(), "id");
-            builder.add_edge(Edge::new(start, end, "GhostHound_CanReanimate"));
+        for edge in reanimation_edges(
+            &target_id,
+            &args.domain,
+            &reanimate_rights,
+            &t.reanimation_paths,
+        ) {
+            builder.add_edge(edge);
         }
 
         // Edges: groups this tombstone was a member of, still walkable while in the
@@ -259,7 +366,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         for dn in &t.member_of {
             if let Some(group_sid) = group_dn_to_sid.get(dn) {
                 let start = bloodhound_opengraph::EdgeEndpoint::new(target_id.clone(), "id");
-                let end = bloodhound_opengraph::EdgeEndpoint::new(group_sid.clone(), "id");
+                let end = bloodhound_opengraph::EdgeEndpoint::new(
+                    graph_principal_id(group_sid, &args.domain),
+                    "id",
+                );
                 builder.add_edge(Edge::new(start, end, "GhostHound_WasMemberOf"));
             }
         }
@@ -280,4 +390,161 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ldap.unbind().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(sid: &str, mechanisms: &[ReanimateMechanism]) -> ReanimationPath {
+        ReanimationPath {
+            sid: sid.to_string(),
+            mechanisms: mechanisms.to_vec(),
+        }
+    }
+
+    fn source_of(edge: &Edge) -> &str {
+        edge.properties["source"].as_str().unwrap()
+    }
+
+    fn sources_of(edge: &Edge) -> Vec<&str> {
+        edge.properties["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect()
+    }
+
+    /// Path A alone: the domain-wide right, applied to every tombstone.
+    #[test]
+    fn test_edges_from_domain_right_only() {
+        let edges = reanimation_edges(
+            "S-1-5-21-1-2-3-1109",
+            "ghost.local",
+            &["S-1-5-32-544".to_string()],
+            &[],
+        );
+
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].kind, "GhostHound_CanReanimate");
+        // Well-known SID, domain-scoped to match BloodHound's own objectid for it.
+        assert_eq!(edges[0].start.value, "GHOST.LOCAL-S-1-5-32-544");
+        assert_eq!(edges[0].end.value, "S-1-5-21-1-2-3-1109");
+        assert_eq!(source_of(&edges[0]), "reanimate_right");
+        assert_eq!(sources_of(&edges[0]), vec!["reanimate_right"]);
+    }
+
+    /// Path B alone -- the case that previously produced no edge at all: a principal with only
+    /// ownership plus WRITE_DAC/WRITE_OWNER on the tombstone, and no formal extended right
+    /// anywhere.
+    #[test]
+    fn test_edges_from_object_control_only() {
+        let edges = reanimation_edges(
+            "S-1-5-21-1-2-3-1109",
+            "ghost.local",
+            &[],
+            &[path(
+                "S-1-5-21-1-2-3-1104",
+                &[
+                    ReanimateMechanism::Owner,
+                    ReanimateMechanism::WriteDac,
+                    ReanimateMechanism::WriteOwner,
+                ],
+            )],
+        );
+
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].start.value, "S-1-5-21-1-2-3-1104");
+        assert_eq!(source_of(&edges[0]), "owner");
+        assert_eq!(
+            sources_of(&edges[0]),
+            vec!["owner", "write_dac", "write_owner"]
+        );
+    }
+
+    #[test]
+    fn test_edge_source_for_write_dac_only() {
+        let edges = reanimation_edges(
+            "S-1-5-21-1-2-3-1109",
+            "ghost.local",
+            &[],
+            &[path("S-1-5-21-1-2-3-1104", &[ReanimateMechanism::WriteDac])],
+        );
+
+        assert_eq!(source_of(&edges[0]), "write_dac");
+        assert_eq!(sources_of(&edges[0]), vec!["write_dac"]);
+    }
+
+    /// A principal qualifying via both paths gets one edge recording both, not two edges.
+    #[test]
+    fn test_edges_dedup_across_both_paths() {
+        let edges = reanimation_edges(
+            "S-1-5-21-1-2-3-1109",
+            "ghost.local",
+            &["S-1-5-21-1-2-3-1104".to_string()],
+            &[path("S-1-5-21-1-2-3-1104", &[ReanimateMechanism::Owner])],
+        );
+
+        assert_eq!(
+            edges.len(),
+            1,
+            "expected one edge per principal: {:?}",
+            edges
+        );
+        // The formal grant wins as the scalar `source`: it needs no ACL rewrite first.
+        assert_eq!(source_of(&edges[0]), "reanimate_right");
+        assert_eq!(sources_of(&edges[0]), vec!["reanimate_right", "owner"]);
+    }
+
+    /// Distinct principals still get one edge each, in a deterministic order.
+    #[test]
+    fn test_edges_for_distinct_principals() {
+        let edges = reanimation_edges(
+            "S-1-5-21-1-2-3-1109",
+            "ghost.local",
+            &["S-1-5-32-544".to_string()],
+            &[path("S-1-5-21-1-2-3-1104", &[ReanimateMechanism::Owner])],
+        );
+
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0].start.value, "S-1-5-21-1-2-3-1104");
+        assert_eq!(edges[1].start.value, "GHOST.LOCAL-S-1-5-32-544");
+    }
+
+    /// A domain principal's SID is globally unique and must pass through untouched -- prefixing it
+    /// would break the match against the real node.
+    #[test]
+    fn test_graph_principal_id_passes_through_domain_sids() {
+        assert_eq!(
+            graph_principal_id(
+                "S-1-5-21-1392491010-1358638721-2126982587-1106",
+                "tombwatcher.htb"
+            ),
+            "S-1-5-21-1392491010-1358638721-2126982587-1106"
+        );
+    }
+
+    /// Well-known SIDs mean a different principal per domain, so BloodHound stores them scoped --
+    /// e.g. TOMBWATCHER.HTB-S-1-5-32-544. Emitting the bare SID leaves the shadow node unbridgeable.
+    #[test]
+    fn test_graph_principal_id_scopes_well_known_sids() {
+        for sid in [
+            "S-1-5-32-544",
+            "S-1-5-32-548",
+            "S-1-5-18",
+            "S-1-5-11",
+            "S-1-1-0",
+        ] {
+            assert_eq!(
+                graph_principal_id(sid, "tombwatcher.htb"),
+                format!("TOMBWATCHER.HTB-{}", sid)
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_edges_when_nothing_qualifies() {
+        assert!(reanimation_edges("S-1-5-21-1-2-3-1109", "ghost.local", &[], &[]).is_empty());
+    }
 }

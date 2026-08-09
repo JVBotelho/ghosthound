@@ -34,7 +34,7 @@
   "relationship_kinds": [
     {
       "name": "GhostHound_CanReanimate",
-      "description": "The source principal holds the Reanimate-Tombstones control access right (or an unscoped control-access grant, which implies it) on the domain naming context root, and can therefore restore the target tombstone via LDAP_SERVER_SHOW_DELETED_OID. See docs/adr/0001 and docs/adr/0004.",
+      "description": "The source principal can restore the target tombstone via LDAP_SERVER_SHOW_DELETED_OID, by either of two mechanisms, recorded on the edge's `source` property (single strongest mechanism) and `sources` property (all of them). `reanimate_right`: the principal already holds the Reanimate-Tombstones control access right (or an unscoped control-access grant, which implies it), read off the domain naming context root. `owner`/`write_dac`/`write_owner`: the principal owns the tombstone, or holds WRITE_DAC/WRITE_OWNER on its own nTSecurityDescriptor, and can therefore rewrite that DACL to grant itself the right first -- an extra, auditable step, so filter on `source` when that distinction matters. See docs/adr/0001, docs/adr/0004 and docs/adr/0007.",
       "is_traversable": true
     },
     {

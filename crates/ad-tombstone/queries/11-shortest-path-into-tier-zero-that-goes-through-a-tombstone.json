@@ -1,0 +1,5 @@
+{
+  "name": "Shortest Path Into Tier Zero That Goes Through a Tombstone",
+  "description": "Pathfinding across the whole graph, constrained to routes that actually traverse a reanimation edge -- escalations that exist only because of a tombstone. Mixes GhostHound edges with BloodHound's own AD edges, which is the point of registering the kinds as traversable (ADR-0004). Requires bridge_shadow_nodes.cypher; can be slow on a large graph.",
+  "query": "MATCH p=shortestPath((u:User)-[*1..8]->(g:Tag_Tier_Zero)) WHERE NOT u:Tag_Tier_Zero AND ANY(r IN relationships(p) WHERE type(r) = 'GhostHound_CanReanimate') RETURN p"
+}

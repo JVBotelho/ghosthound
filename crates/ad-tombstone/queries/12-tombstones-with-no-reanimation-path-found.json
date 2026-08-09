@@ -1,0 +1,5 @@
+{
+  "name": "Tombstones With No Reanimation Path Found",
+  "description": "Tombstones nobody was found able to reanimate. Read this as a possible collection gap before a clean bill of health: if ownersid is also null, the object's nTSecurityDescriptor was unreadable and its real owner/DACL paths are simply unknown.",
+  "query": "MATCH (t) WHERE (t:GhostHound_TombstoneUser OR t:GhostHound_TombstoneComputer OR t:GhostHound_TombstoneGroup) AND NOT ()-[:GhostHound_CanReanimate]->(t) RETURN t"
+}
