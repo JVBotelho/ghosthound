@@ -26,6 +26,10 @@ use zeroize::Zeroizing;
     about = "GhostHound CLI - Discover AD Tombstones and Reanimation Paths"
 )]
 struct Args {
+    /// Suppress the startup banner (useful when wrapping GhostHound in a script)
+    #[arg(long, default_value_t = false)]
+    no_banner: bool,
+
     /// Domain name (e.g. ghost.local)
     #[arg(short, long)]
     domain: String,
@@ -68,9 +72,24 @@ struct Args {
     output: PathBuf,
 }
 
+/// Prints the startup banner on stderr, keeping stdout free for output a caller may want to capture
+/// or pipe.
+fn print_banner() {
+    eprintln!(
+        "GhostHound v{} - AD tombstone reanimation paths for BloodHound",
+        env!("CARGO_PKG_VERSION")
+    );
+    eprintln!("by JVBotelho - https://glitchedcat.com");
+    eprintln!();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    if !args.no_banner {
+        print_banner();
+    }
 
     if args.ntlm {
         return Err("NTLM authentication is currently disabled due to upstream dependencies (sspi-rs) failing strict security checks on the latest compiler toolchain. Please use Simple Bind.".into());
