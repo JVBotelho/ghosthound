@@ -10,6 +10,13 @@ confidence-threshold = 0.8
 allow = ["GPL-3.0", "GPL-3.0-or-later", "GPL-3.0-only"]
 crate = "sddl"
 
+# `sddl` 0.1.x parses Windows types through this GPL-3.0 crate. It is permitted only inside the
+# unpublished differential-test oracle; the matching ban rule below prevents it from entering any
+# shipped crate through another dependency path.
+[[licenses.exceptions]]
+allow = ["GPL-3.0", "GPL-3.0-or-later", "GPL-3.0-only"]
+crate = "dfir_windows_types"
+
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
@@ -18,7 +25,8 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 
 deny = [
-    { crate = "sddl", wrappers = ["ad-secdesc-oracle"] }
+    { crate = "sddl", wrappers = ["ad-secdesc-oracle"] },
+    { crate = "dfir_windows_types", wrappers = ["sddl"] }
 ]
 
 [advisories]
