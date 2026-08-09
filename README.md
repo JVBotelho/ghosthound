@@ -33,6 +33,22 @@ you are explicitly authorized to test.
 ghosthound -d ghost.local --dc-ip 10.0.0.10 -u alice -o tombstones.json
 ```
 
+`--output`/`-o` accepts either an explicit file path or an existing directory. When given a
+directory, GhostHound writes the default `ghosthound_output.json` inside it:
+
+```bash
+# Write to an explicit path
+ghosthound -d ghost.local --dc-ip 10.0.0.10 -u alice -o /tmp/tombstones.json
+
+# Write /tmp/ghosthound_output.json
+ghosthound -d ghost.local --dc-ip 10.0.0.10 -u alice -o /tmp
+```
+
+Parent directories are not created automatically. GhostHound validates the destination before
+connecting to LDAP and reports a contextual error if the parent is missing or is not a directory.
+On Unix, a newly-created or reused output file is restricted to mode `0600`; on Windows, its access
+is controlled by filesystem ACLs.
+
 Password resolution order: `--password` (avoid — visible via `ps`/`/proc/<pid>/cmdline` and shell
 history), then the `LDAP_PASSWORD` environment variable, then an interactive prompt if neither is
 set.

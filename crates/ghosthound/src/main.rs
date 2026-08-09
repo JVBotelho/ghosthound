@@ -5,6 +5,8 @@
 
 #![forbid(unsafe_code)]
 
+mod output;
+
 use ad_tombstone::{
     check_reanimate_rights, check_recycle_bin_enabled, fetch_tombstones, resolve_object_sid,
     with_timeout,
@@ -14,13 +16,9 @@ use clap::Parser;
 use ldap3::{LdapConnAsync, LdapConnSettings};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
+use std::path::PathBuf;
 use std::time::Duration;
 use zeroize::Zeroizing;
-
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 
 #[derive(Parser)]
 #[command(
@@ -65,14 +63,16 @@ struct Args {
     #[arg(long, default_value_t = 30)]
     timeout_secs: u64,
 
-    /// Output JSON file name
-    #[arg(short, long, default_value = "ghosthound_output.json")]
-    output: String,
+    /// Output JSON file path or existing directory
+    #[arg(short, long, default_value = output::DEFAULT_OUTPUT_FILENAME)]
+    output: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let output_path = output::resolve_output_path(&args.output)?;
+    println!("[*] Output destination: {}", output_path.display());
 
     if args.ntlm {
         return Err("NTLM authentication is currently disabled due to upstream dependencies (sspi-rs) failing strict security checks on the latest compiler toolchain. Please use Simple Bind.".into());
@@ -267,16 +267,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_data = builder.build("GhostHound");
     let json_output = serde_json::to_string_pretty(&graph_data)?;
-    // The output documents privileged principals and attack paths, so restrict it to the owner
-    // rather than relying on the process umask (typically 644, world-readable) on Unix.
-    let mut open_options = File::options();
-    open_options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    open_options.mode(0o600);
-    let mut file = open_options.open(&args.output)?;
-    file.write_all(json_output.as_bytes())?;
+    output::write_output(&output_path, json_output.as_bytes())?;
 
-    println!("[+] Successfully wrote graph data to {}", args.output);
+    println!(
+        "[+] Successfully wrote graph data to {}",
+        output_path.display()
+    );
 
     ldap.unbind().await?;
     Ok(())
