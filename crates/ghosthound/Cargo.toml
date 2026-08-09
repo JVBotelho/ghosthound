@@ -4,7 +4,9 @@ name = "ghosthound"
 version = "0.1.2"
 edition = "2024"
 description = "GhostHound CLI: Orchestrates AD Tombstone discovery and OpenGraph generation"
+authors = ["JVBotelho"]
 repository = "https://github.com/JVBotelho/ghosthound"
+homepage = "https://glitchedcat.com"
 readme = "../../README.md"
 
 [dependencies]
