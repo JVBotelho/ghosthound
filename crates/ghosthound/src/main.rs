@@ -71,12 +71,13 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let output_path = output::resolve_output_path(&args.output)?;
-    println!("[*] Output destination: {}", output_path.display());
 
     if args.ntlm {
         return Err("NTLM authentication is currently disabled due to upstream dependencies (sspi-rs) failing strict security checks on the latest compiler toolchain. Please use Simple Bind.".into());
     }
+
+    let output_path = output::resolve_output_path(&args.output)?;
+    println!("[*] Output destination: {}", output_path.display());
 
     let password = Zeroizing::new(match args.password {
         Some(p) => p,
