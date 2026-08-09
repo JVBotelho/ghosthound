@@ -4,7 +4,9 @@ name = "ad-secdesc"
 version = "0.1.2"
 edition = "2024"
 description = "Binary parser for Active Directory ntSecurityDescriptor and ACEs"
+authors = ["JVBotelho"]
 repository = "https://github.com/JVBotelho/ghosthound"
+homepage = "https://glitchedcat.com"
 
 [dependencies]
 byteorder = "1.5.0"
