@@ -8,3 +8,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # CodeQL persists state between its init/analyze/upload steps and rejects mixed Action
+    # versions. Keep all of its entry points on the same release in future update PRs.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
