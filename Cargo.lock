@@ -544,6 +544,7 @@ dependencies = [
  "native-tls",
  "rpassword",
  "serde_json",
+ "tempfile",
  "tokio",
  "zeroize",
 ]
